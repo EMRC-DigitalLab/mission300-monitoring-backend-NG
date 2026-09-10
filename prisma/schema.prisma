@@ -57,9 +57,29 @@ model User {
   reviewDecisions  ReviewDecision[]  @relation("ReviewedBy")
   auditLogEntries  AuditLogEntry[]
   reports          Report[]
+  uploadedFiles    UploadedFile[]
+  webhookSubscriptions WebhookSubscription[]
 
   @@index([institutionId])
   @@map("users")
+}
+
+// Generic file storage record - any feature that lets a user upload an
+// arbitrary file (not the structured submissions/upload flow, which parses
+// its file into SubmissionItems instead of storing it as one of these)
+// goes through StorageService + this table.
+model UploadedFile {
+  id           String   @id @default(cuid())
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  storageKey   String
+  originalName String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  @@index([uploadedById])
+  @@map("uploaded_files")
 }
 
 model DataCustodian {
@@ -317,4 +337,49 @@ model BrandingSettings {
   updatedAt DateTime @updatedAt
 
   @@map("branding_settings")
+}
+
+// --- Notifications (email + webhooks) -----------------------------------
+// Both channels are driven off the same domain events published to
+// RabbitMQ (submission decisions, invites, report-ready, etc.) - see
+// src/notifications. Email has no DB row of its own (Resend is the system
+// of record for delivery status); webhooks need one, since a subscriber's
+// endpoint can be down and we need something to retry/debug against.
+
+model WebhookSubscription {
+  id          String    @id @default(cuid())
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  url         String
+  secret      String // HMAC key for the X-M300-Signature header - shown once at creation
+  events      String[] // routing-key patterns this subscription wants, e.g. "submission.*"
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  deliveries  WebhookDelivery[]
+
+  @@index([ownerId])
+  @@map("webhook_subscriptions")
+}
+
+enum WebhookDeliveryStatus {
+  SUCCESS
+  FAILED
+}
+
+// One row per delivery attempt, not per event - lets a caller see exactly
+// what was sent and why a delivery failed, without needing external logs.
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  subscriptionId String
+  subscription   WebhookSubscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  event          String
+  payload        Json
+  status         WebhookDeliveryStatus
+  responseStatus Int?
+  error          String?
+  createdAt      DateTime              @default(now())
+
+  @@index([subscriptionId, createdAt])
+  @@map("webhook_deliveries")
 }

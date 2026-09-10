@@ -47,6 +47,8 @@ export class GenerateReportConsumer implements OnModuleInit {
         where: { id: reportId },
         data: { status: ReportStatus.READY, fileUrl, completedAt: new Date() },
       });
+
+      await this.rabbitmq.publish("report.ready", { reportId });
     } catch (error) {
       this.logger.error(`Report ${reportId} generation failed`, error as Error);
       await this.prisma.report.update({

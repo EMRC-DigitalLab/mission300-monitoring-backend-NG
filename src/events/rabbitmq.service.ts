@@ -51,11 +51,15 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     await this.channel.publish(this.exchange, routingKey, payload);
   }
 
-  /** For consumers: bind a queue to one or more routing patterns and handle messages. */
+  /**
+   * For consumers: bind a queue to one or more routing patterns and handle
+   * messages. The routing key is passed through to the handler so one
+   * queue can distinguish between multiple event types it's bound to.
+   */
   async subscribe(
     queue: string,
     patterns: string[],
-    handler: (payload: unknown) => Promise<void>,
+    handler: (payload: unknown, routingKey: string) => Promise<void>,
   ): Promise<void> {
     const channel = this.connection.createChannel({
       json: true,
@@ -68,7 +72,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         await ch.consume(queue, async (msg) => {
           if (!msg) return;
           try {
-            await handler(JSON.parse(msg.content.toString()));
+            await handler(JSON.parse(msg.content.toString()), msg.fields.routingKey);
             ch.ack(msg);
           } catch (error) {
             this.logger.error(`Failed to process message on ${queue}`, error as Error);

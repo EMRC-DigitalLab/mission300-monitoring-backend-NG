@@ -19,6 +19,17 @@ export const envSchema = z.object({
   STORAGE_LOCAL_PATH: z.string().default("./storage"),
 
   CORS_ORIGIN: z.string().optional(),
+
+  // Optional, not required at boot: without it, emails are logged instead of
+  // sent (see EmailService) rather than crashing the whole app over a
+  // missing third-party key in local dev. Webhook signing needs no env var
+  // of its own - each subscription gets its own HMAC secret at creation.
+  RESEND_API_KEY: z.string().optional(),
+  // TODO: this domain must be verified in the Resend account before sends
+  // will actually work - confirm/replace once the real production domain
+  // is settled, and set EMAIL_FROM as a real env var/secret rather than
+  // relying on this default at that point.
+  EMAIL_FROM: z.string().default("M300 Compact Dashboard <notifications@m300.energymrc.ng>"),
 });
 
 export type Env = z.infer<typeof envSchema>;

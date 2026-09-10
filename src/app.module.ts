@@ -5,6 +5,7 @@ import { LoggerModule } from "nestjs-pino";
 import { validateEnv } from "@/config/env.validation";
 import { PrismaModule } from "@/prisma/prisma.module";
 import { RabbitmqModule } from "@/events/rabbitmq.module";
+import { StorageModule } from "@/storage/storage.module";
 import { JwtAuthGuard } from "@/common/guards/jwt-auth.guard";
 import { RolesGuard } from "@/common/guards/roles.guard";
 import { AuditLogInterceptor } from "@/common/interceptors/audit-log.interceptor";
@@ -19,6 +20,8 @@ import { BottlenecksModule } from "@/modules/bottlenecks/bottlenecks.module";
 import { ReportsModule } from "@/modules/reports/reports.module";
 import { StakeholdersModule } from "@/modules/stakeholders/stakeholders.module";
 import { AdministrationModule } from "@/modules/administration/administration.module";
+import { NotificationsModule } from "@/notifications/notifications.module";
+import { FilesModule } from "@/files/files.module";
 
 @Module({
   imports: [
@@ -41,6 +44,7 @@ import { AdministrationModule } from "@/modules/administration/administration.mo
     }),
     PrismaModule,
     RabbitmqModule,
+    StorageModule,
 
     AuthModule,
     HealthModule,
@@ -52,6 +56,8 @@ import { AdministrationModule } from "@/modules/administration/administration.mo
     ReportsModule,
     StakeholdersModule,
     AdministrationModule,
+    NotificationsModule,
+    FilesModule,
   ],
   providers: [
     // Every route requires a valid JWT unless marked @Public().
