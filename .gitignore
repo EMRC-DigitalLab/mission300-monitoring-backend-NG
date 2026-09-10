@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+
+# env
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.github
+!.env.example
+!.env.github.example
+
+# generated secrets/keys - never commit these
+.secrets-local/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# test coverage
+coverage/
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# prisma
+prisma/*.db
+
+# misc
+tmp/
+*.tsbuildinfo

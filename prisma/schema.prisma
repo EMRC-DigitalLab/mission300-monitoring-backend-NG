@@ -1,0 +1,320 @@
+// M300 backend data model.
+// Core principle (see modules/submissions + modules/kpis): a Submission is
+// raw, versioned, user-entered data. A KpiValue is the "live" figure shown
+// across the dashboard. Approving a submission is the ONLY thing allowed to
+// write a new KpiValue - they are separate tables on purpose.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Connection URL is no longer set here (Prisma 7) - it lives in
+// prisma.config.ts for the CLI, and is passed to the driver adapter
+// (@prisma/adapter-pg) for the runtime client - see src/prisma/prisma.service.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// --- Identity & access -------------------------------------------------
+
+enum RoleName {
+  SYSTEM_ADMINISTRATOR
+  INSTITUTIONAL_DATA_PROVIDER
+  DATA_REVIEWER
+  VALIDATOR
+  DASHBOARD_MANAGER
+  OVERSIGHT_USER
+  READ_ONLY_USER
+}
+
+model Institution {
+  id            String   @id @default(cuid())
+  name          String
+  type          String // e.g. "Disco", "State Ministry", "Federal Agency"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         User[]
+  submissions   Submission[]
+  dataCustodians DataCustodian[]
+
+  @@map("institutions")
+}
+
+model User {
+  id             String      @id @default(cuid())
+  email          String      @unique
+  passwordHash   String
+  fullName       String
+  role           RoleName
+  isActive       Boolean     @default(true)
+  institutionId  String?
+  institution    Institution? @relation(fields: [institutionId], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  submissions      Submission[]      @relation("SubmittedBy")
+  reviewDecisions  ReviewDecision[]  @relation("ReviewedBy")
+  auditLogEntries  AuditLogEntry[]
+  reports          Report[]
+
+  @@index([institutionId])
+  @@map("users")
+}
+
+model DataCustodian {
+  id            String      @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  contactName   String
+  contactEmail  String
+  scope         String // free-text description of what this custodian owns
+
+  @@index([institutionId])
+  @@map("data_custodians")
+}
+
+// --- KPI catalogue & live values ---------------------------------------
+
+model Pillar {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+
+  kpis        KpiDefinition[]
+
+  @@map("pillars")
+}
+
+model KpiDefinition {
+  id          String   @id @default(cuid())
+  code        String   @unique // stable machine key, e.g. "access-rate-national"
+  name        String
+  unit        String
+  pillarId    String
+  pillar      Pillar   @relation(fields: [pillarId], references: [id])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values      KpiValue[]
+  submissionItems SubmissionItem[]
+
+  @@index([pillarId])
+  @@map("kpi_definitions")
+}
+
+// The "live" value shown on dashboards. Written ONLY when the submission
+// item carrying this KPI is approved or provisionally approved - one
+// KpiValue per approved SubmissionItem, not per Submission (a single
+// submission can carry many KPI items).
+model KpiValue {
+  id                  String         @id @default(cuid())
+  kpiDefinitionId     String
+  kpiDefinition       KpiDefinition  @relation(fields: [kpiDefinitionId], references: [id])
+  institutionId       String?
+  period              String // e.g. "2026-Q2"
+  value               Decimal
+  sourceSubmissionItemId String      @unique
+  sourceSubmissionItem   SubmissionItem @relation(fields: [sourceSubmissionItemId], references: [id])
+  approvedAt          DateTime
+
+  @@index([kpiDefinitionId, period])
+  @@map("kpi_values")
+}
+
+// --- Submissions: draft -> pending -> under_review -> decision ----------
+
+enum SubmissionStatus {
+  DRAFT
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  PROVISIONALLY_APPROVED
+  RETURNED
+  REJECTED
+}
+
+enum SubmissionMethod {
+  MANUAL_ENTRY
+  UPLOAD
+}
+
+model Submission {
+  id             String            @id @default(cuid())
+  institutionId  String
+  institution    Institution       @relation(fields: [institutionId], references: [id])
+  submittedById  String
+  submittedBy    User              @relation("SubmittedBy", fields: [submittedById], references: [id])
+  method         SubmissionMethod
+  status         SubmissionStatus  @default(DRAFT)
+  version        Int               @default(1)
+  previousVersionId String?        @unique
+  previousVersion   Submission?    @relation("SubmissionVersions", fields: [previousVersionId], references: [id])
+  nextVersion       Submission?    @relation("SubmissionVersions")
+  sourceFileUrl  String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  items          SubmissionItem[]
+  reviewDecisions ReviewDecision[]
+
+  @@index([institutionId, status])
+  @@map("submissions")
+}
+
+model SubmissionItem {
+  id              String        @id @default(cuid())
+  submissionId    String
+  submission      Submission    @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  kpiDefinitionId String
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id])
+  period          String
+  value           Decimal
+  validationIssues Json?        // structured list of automated-check failures, if any
+  kpiValue        KpiValue?
+
+  @@index([submissionId])
+  @@map("submission_items")
+}
+
+enum ReviewDecisionType {
+  APPROVE
+  PROVISIONALLY_APPROVE
+  RETURN_FOR_CORRECTION
+  REJECT
+}
+
+model ReviewDecision {
+  id           String              @id @default(cuid())
+  submissionId String
+  submission   Submission          @relation(fields: [submissionId], references: [id])
+  reviewedById String
+  reviewedBy   User                @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  decision     ReviewDecisionType
+  comment      String // mandatory - enforced in the service layer, not just here
+  createdAt    DateTime            @default(now())
+
+  @@index([submissionId])
+  @@map("review_decisions")
+}
+
+// --- Programs / projects / bottlenecks ----------------------------------
+
+model Program {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  pillarId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  projects    Project[]
+
+  @@map("programs")
+}
+
+model Project {
+  id          String       @id @default(cuid())
+  programId   String
+  program     Program      @relation(fields: [programId], references: [id])
+  name        String
+  status      String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  bottlenecks Bottleneck[]
+
+  @@index([programId])
+  @@map("projects")
+}
+
+enum BottleneckSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Bottleneck {
+  id          String             @id @default(cuid())
+  projectId   String?
+  project     Project?           @relation(fields: [projectId], references: [id])
+  title       String
+  description String
+  severity    BottleneckSeverity
+  category    String
+  status      String             @default("open")
+  raisedAt    DateTime           @default(now())
+  resolvedAt  DateTime?
+
+  @@index([projectId])
+  @@map("bottlenecks")
+}
+
+// --- Reports --------------------------------------------------------------
+
+enum ReportStatus {
+  QUEUED
+  GENERATING
+  READY
+  FAILED
+}
+
+enum ReportFormat {
+  PDF
+  XLSX
+}
+
+// Generation is async (RabbitMQ worker) - a row is created as QUEUED
+// immediately so the UI can show it in history, then updated to READY with
+// a fileUrl once the worker finishes. See events/consumers for the worker.
+model Report {
+  id            String       @id @default(cuid())
+  requestedById String
+  requestedBy   User         @relation(fields: [requestedById], references: [id])
+  type          String // e.g. "pillar-summary", "compact-export"
+  format        ReportFormat
+  filters       Json
+  status        ReportStatus @default(QUEUED)
+  fileUrl       String?
+  failureReason String?
+  createdAt     DateTime     @default(now())
+  completedAt   DateTime?
+
+  @@index([requestedById])
+  @@map("reports")
+}
+
+// --- Audit log ------------------------------------------------------------
+
+model AuditLogEntry {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String // e.g. "submission.approved", "user.role_changed"
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_log_entries")
+}
+
+// --- Branding ---------------------------------------------------------
+// Single-row table (id is always "default"). Read by everyone via the
+// public gateway/app shell; writable only by SYSTEM_ADMINISTRATOR.
+
+model BrandingSettings {
+  id        String   @id @default("default")
+  logoUrl   String?
+  primaryColor   String @default("#0B5FFF")
+  secondaryColor String @default("#111827")
+  fontFamily     String @default("Inter")
+  updatedAt DateTime @updatedAt
+
+  @@map("branding_settings")
+}

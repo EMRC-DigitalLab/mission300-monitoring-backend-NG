@@ -1,0 +1,97 @@
+# Production/staging stack, run on the shared Hostinger VPS via Docker
+# Compose (no managed container platform - Hostinger has no Azure Container
+# Apps equivalent). This one file is used for BOTH environments, kept
+# separate purely via the Compose *project name* (-p) and a different
+# env file per run - see .github/workflows/deploy.yml.
+#
+# This VPS already runs several other stacks, each fronted by its own nginx
+# sidecar on a unique host port, with TLS/domain routing handled OUTSIDE
+# Docker (no container anywhere binds :80/:443 - see `docker ps` on the
+# box). We follow the same convention: no TLS here, no port 80/443, and
+# the api port is bound to 127.0.0.1 only so it's reachable from the host's
+# reverse proxy but not directly from the public internet. Add a server
+# block on that host-level proxy pointing at 127.0.0.1:${API_HOST_PORT}.
+#
+# Usage on the VPS, from /opt/m300-backend (this is what deploy.yml runs -
+# not normally run by hand):
+#   IMAGE=ghcr.io/<org>/m300-backend:<tag> \
+#   docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+#     --env-file staging/.env up -d
+#
+#   IMAGE=ghcr.io/<org>/m300-backend:<tag> \
+#   docker compose -p m300-backend-production -f docker/docker-compose.prod.yml \
+#     --env-file production/.env up -d
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No published port: only reachable from other containers in this
+    # project's own network (isolated per -p project name).
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ${IMAGE}
+    restart: unless-stopped
+    # Every value here comes from whichever --env-file was passed to
+    # `docker compose` (.env.staging or .env.production) - no separate
+    # env_file indirection needed, since that same file already drives all
+    # the ${...} substitution in this compose file.
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: "3000"
+      DATABASE_URL: ${DATABASE_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL}
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /app/storage
+      CORS_ORIGIN: ${CORS_ORIGIN}
+    ports:
+      # Loopback-only - the box's existing host-level reverse proxy is
+      # expected to terminate TLS for the public domain and proxy_pass to
+      # this port, the same way it already does for every other stack here.
+      - "127.0.0.1:${API_HOST_PORT}:3000"
+    volumes:
+      - api_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  api_storage:
