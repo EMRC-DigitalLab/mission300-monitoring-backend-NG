@@ -34,8 +34,12 @@ jobs:
       - name: Compute image tag
         id: meta
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          # GHCR image names must be lowercase - github.repository preserves
+          # the org's actual case ("EMRC-DigitalLab/..."), which Docker
+          # rejects outright, so lowercase it here rather than at push time.
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo_lower=$REPO_LOWER" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$REPO_LOWER:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -45,7 +49,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image }}
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ steps.meta.outputs.repo_lower }}:${{ github.ref_name }}
 
   migrate-and-deploy:
     needs: build-and-push
