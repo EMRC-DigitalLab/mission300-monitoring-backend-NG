@@ -29,8 +29,14 @@ import { AdministrationModule } from "@/modules/administration/administration.mo
     }),
     LoggerModule.forRoot({
       pinoHttp: {
-        level: process.env.NODE_ENV === "production" ? "info" : "debug",
-        transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
+        // pino-pretty is a devDependency, pruned from the Docker image - the
+        // ONLY environment that has it on disk is genuine local development
+        // (`pnpm dev`, not containerized). staging runs the same pruned
+        // image as production, so it must get plain JSON logs too, not just
+        // production - checking `=== "production"` here previously crashed
+        // every staging boot trying to load a transport that doesn't exist.
+        level: process.env.NODE_ENV === "development" ? "debug" : "info",
+        transport: process.env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
       },
     }),
     PrismaModule,

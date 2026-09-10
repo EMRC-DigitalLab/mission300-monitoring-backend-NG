@@ -53,31 +53,162 @@ jobs:
             ${{ steps.meta.outputs.image }}
             ghcr.io/${{ steps.meta.outputs.repo_lower }}:${{ github.ref_name }}
 
-  # Two separate jobs, each gated by `if:` on what actually triggered this
-  # run - only one of them executes per push, the other shows as skipped
-  # in the Actions graph, rather than one job that branches internally.
-  # Both call the same reusable deploy-target.yml with different inputs.
+  # Two fully independent jobs (not two calls to a shared reusable workflow -
+  # GitHub visually nests multiple calls to the SAME reusable file into one
+  # box, which isn't what we want here). Each is gated by `if:` on what
+  # triggered the run, so only one actually executes per push - the other
+  # shows as skipped, as its own separate box in the Actions graph.
 
   deploy-staging:
     name: Deploy → Staging
     needs: build-and-push
     if: github.ref == 'refs/heads/staging'
-    uses: ./.github/workflows/deploy-target.yml
-    with:
-      env_name: staging
-      compose_project: m300-backend-staging
-      api_host_port: "8099"
-      image: ${{ needs.build-and-push.outputs.image }}
-    secrets: inherit
+    environment: staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy the compose file to the VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          source: "docker/docker-compose.prod.yml"
+          target: "/opt/m300-backend"
+
+      - name: Deploy image to Hostinger VPS over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            mkdir -p /opt/m300-backend/staging
+            cat > /opt/m300-backend/staging/.env <<'ENVEOF'
+            NODE_ENV=staging
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
+            RABBITMQ_EXCHANGE=m300.events
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_ACCESS_TTL=15m
+            JWT_REFRESH_TTL=7d
+            CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+            RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+            API_HOST_PORT=8099
+            ENVEOF
+
+            cd /opt/m300-backend
+            export IMAGE=${{ needs.build-and-push.outputs.image }}
+            docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+              --env-file staging/.env pull api
+
+            # Migrations run as a one-off container on the SAME docker
+            # network as postgres/rabbitmq - "postgres" as a hostname only
+            # resolves inside that network, so this can't run on the bare
+            # GitHub Actions runner (that was the original bug here).
+            docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+              --env-file staging/.env run --rm api npx prisma migrate deploy
+
+            docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+              --env-file staging/.env up -d
+            docker image prune -f
+
+            # No public domain wired up yet (api is loopback-only, see
+            # docker-compose.prod.yml) - checked from inside the VPS itself.
+            # Switch to scripts/health-check.sh against a real domain once
+            # DEPLOY_HEALTH_CHECK_URL is set - see .env.github's notes.
+            HEALTH_URL="http://127.0.0.1:8099/health"
+            for attempt in $(seq 1 30); do
+              status=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+              if [ "$status" = "200" ]; then
+                echo "Healthy (attempt $attempt/30, HTTP $status)"
+                exit 0
+              fi
+              echo "Not ready yet (attempt $attempt/30, HTTP $status). Retrying in 5s..."
+              sleep 5
+            done
+            echo "Health check failed after 30 attempts: $HEALTH_URL"
+            exit 1
 
   deploy-production:
     name: Deploy → Production
     needs: build-and-push
     if: startsWith(github.ref, 'refs/tags/v')
-    uses: ./.github/workflows/deploy-target.yml
-    with:
-      env_name: production
-      compose_project: m300-backend-production
-      api_host_port: "8100"
-      image: ${{ needs.build-and-push.outputs.image }}
-    secrets: inherit
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy the compose file to the VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          source: "docker/docker-compose.prod.yml"
+          target: "/opt/m300-backend"
+
+      - name: Deploy image to Hostinger VPS over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            mkdir -p /opt/m300-backend/production
+            cat > /opt/m300-backend/production/.env <<'ENVEOF'
+            NODE_ENV=production
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
+            RABBITMQ_EXCHANGE=m300.events
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_ACCESS_TTL=15m
+            JWT_REFRESH_TTL=7d
+            CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+            RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+            API_HOST_PORT=8100
+            ENVEOF
+
+            cd /opt/m300-backend
+            export IMAGE=${{ needs.build-and-push.outputs.image }}
+            docker compose -p m300-backend-production -f docker/docker-compose.prod.yml \
+              --env-file production/.env pull api
+
+            docker compose -p m300-backend-production -f docker/docker-compose.prod.yml \
+              --env-file production/.env run --rm api npx prisma migrate deploy
+
+            docker compose -p m300-backend-production -f docker/docker-compose.prod.yml \
+              --env-file production/.env up -d
+            docker image prune -f
+
+            HEALTH_URL="http://127.0.0.1:8100/health"
+            for attempt in $(seq 1 30); do
+              status=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+              if [ "$status" = "200" ]; then
+                echo "Healthy (attempt $attempt/30, HTTP $status)"
+                exit 0
+              fi
+              echo "Not ready yet (attempt $attempt/30, HTTP $status). Retrying in 5s..."
+              sleep 5
+            done
+            echo "Health check failed after 30 attempts: $HEALTH_URL"
+            exit 1

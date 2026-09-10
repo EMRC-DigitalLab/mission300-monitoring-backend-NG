@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, staging]
+    # staging is deliberately NOT listed here: deploy.yml already triggers
+    # on push to staging and calls this workflow itself as its "Test" job -
+    # adding staging here too would run every test suite twice per push.
+    branches: [main]
   workflow_call: {} # allows deploy.yml to use this as a reusable test gate
 
 jobs:
@@ -41,7 +44,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://m300:m300@localhost:5432/m300_test?schema=public
       RABBITMQ_URL: amqp://m300:m300@localhost:5672
-      JWT_SECRET: ci-test-secret
+      JWT_SECRET: ci-test-secret-not-a-real-secret-do-not-reuse
 
     steps:
       - uses: actions/checkout@v4
