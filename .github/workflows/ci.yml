@@ -41,7 +41,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://m300:m300@localhost:5432/m300_test?schema=public
       RABBITMQ_URL: amqp://m300:m300@localhost:5672
-      JWT_SECRET: ci-test-secret
+      JWT_SECRET: ci-test-secret-not-a-real-secret-do-not-reuse
 
     steps:
       - uses: actions/checkout@v4
