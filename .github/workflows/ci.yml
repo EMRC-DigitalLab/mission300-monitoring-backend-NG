@@ -58,14 +58,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prisma generate
+        # Must run before lint/typecheck: @prisma/client is an empty stub
+        # until this runs, so anything that imports it fails to typecheck
+        # on a fresh checkout (this bit us - worked locally only because a
+        # prior local run had already generated the client on disk).
+        run: pnpm prisma:generate
+
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
-
-      - name: Prisma generate
-        run: pnpm prisma:generate
 
       - name: Prisma migrate (test DB)
         run: pnpm prisma:migrate:deploy
