@@ -123,10 +123,8 @@ jobs:
               --env-file staging/.env up -d
             docker image prune -f
 
-            # No public domain wired up yet (api is loopback-only, see
-            # docker-compose.prod.yml) - checked from inside the VPS itself.
-            # Switch to scripts/health-check.sh against a real domain once
-            # DEPLOY_HEALTH_CHECK_URL is set - see .env.github's notes.
+            # Internal check first - confirms the container we just started
+            # is actually serving, independent of DNS/nginx/TLS.
             HEALTH_URL="http://127.0.0.1:8099/health"
             for attempt in $(seq 1 30); do
               status=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
@@ -139,6 +137,12 @@ jobs:
             done
             echo "Health check failed after 30 attempts: $HEALTH_URL"
             exit 1
+
+      - name: External health check (through DNS + nginx + TLS)
+        # Runs from the GitHub runner, not the VPS - this is the only check
+        # that actually proves the public path works end-to-end (the
+        # internal check above only proves the container itself is up).
+        run: bash scripts/health-check.sh "${{ secrets.DEPLOY_HEALTH_CHECK_URL }}"
 
   deploy-production:
     name: Deploy → Production
@@ -212,3 +216,6 @@ jobs:
             done
             echo "Health check failed after 30 attempts: $HEALTH_URL"
             exit 1
+
+      - name: External health check (through DNS + nginx + TLS)
+        run: bash scripts/health-check.sh "${{ secrets.DEPLOY_HEALTH_CHECK_URL }}"
