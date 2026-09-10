@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, staging]
+    # staging is deliberately NOT listed here: deploy.yml already triggers
+    # on push to staging and calls this workflow itself as its "Test" job -
+    # adding staging here too would run every test suite twice per push.
+    branches: [main]
   workflow_call: {} # allows deploy.yml to use this as a reusable test gate
 
 jobs:
