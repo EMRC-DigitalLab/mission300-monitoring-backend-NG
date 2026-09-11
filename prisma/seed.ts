@@ -1120,6 +1120,20 @@ async function main() {
     update: {},
   });
 
+  // State/DisCo Phase C: tag two of the projects just seeded above with a
+  // real state, so the coverage aggregation in state-disco.service.ts's
+  // getStates()/getStateDetail() has something real to compute over - the
+  // spec forbids inferring a state from free-text location, so this is a
+  // deliberate, explicit tag, not a geocode guess.
+  await prisma.project.update({
+    where: { id: "seed-project-north-east-line-upgrade" },
+    data: { stateId: statesByName.get("Borno")!.id },
+  });
+  await prisma.project.update({
+    where: { id: "seed-project-dares-cluster-4" },
+    data: { stateId: statesByName.get("Niger")!.id },
+  });
+
   // Bottlenecks & Exceptions Phase B: enough real-shaped Bottleneck/
   // Escalation rows to exercise every headline-alert rule in
   // bottlenecks.service.ts's getOverview() (open-high-or-critical,

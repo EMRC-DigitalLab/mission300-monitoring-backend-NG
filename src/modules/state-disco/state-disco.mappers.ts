@@ -3,6 +3,7 @@ import type {
   DiscoPerformanceRecord,
   DiscoServiceBand,
   Institution,
+  State,
 } from "@prisma/client";
 import { toKebabCase } from "@/common/utils/enum-casing";
 
@@ -149,5 +150,58 @@ export function toDeliveryRow(m: MilestoneWithInstitution) {
     evidenceLabel: m.evidenceUrl ? "Evidence attached" : "No evidence yet",
     reportingCompliance: m.reportingCompliance || "Not yet assessed",
     bottleneck: m.bottleneck,
+  };
+}
+
+export interface StateCoverageAggregates {
+  activeProgrammes: number;
+  activeProjects: number;
+  openBottlenecks: number;
+  /// No real per-state breakdown of the national mini-grid/solar-home-
+  /// system KPI figures exists yet - the spec is explicit that this must
+  /// never be inferred or fabricated, so these stay 0 until a project-
+  /// level delivered-units field exists to sum honestly.
+  miniGridConnections: number;
+  solarHomeSystems: number;
+  /// Share of this state's tagged projects that are complete - a real,
+  /// derived "how much delivery is done" figure, not a fabricated one.
+  coverageBarPercent: number;
+}
+
+/** Matches stateCoverageRowSchema exactly. */
+export function toStateCoverageRow(state: State, aggregates: StateCoverageAggregates) {
+  return {
+    id: state.id,
+    state: state.name,
+    zone: state.zone,
+    miniGridConnections: formatInt(aggregates.miniGridConnections),
+    solarHomeSystems: formatInt(aggregates.solarHomeSystems),
+    activeProgrammes: formatInt(aggregates.activeProgrammes),
+    activeProjects: formatInt(aggregates.activeProjects),
+    openBottlenecks: formatInt(aggregates.openBottlenecks),
+    validationLabel: state.validatedAt ? "Confirmed" : "Provisional",
+    coverageBarPercent: aggregates.coverageBarPercent,
+    validatedBy: state.validatedByName,
+    validatedAt: state.validatedAt ? state.validatedAt.toISOString() : null,
+  };
+}
+
+/** Matches stateRecordSchema exactly. */
+export function toStateRecord(row: {
+  id: string;
+  type: "programme" | "project" | "bottleneck";
+  name: string;
+  owner: string;
+  status: string;
+  sourceLabel: string;
+}) {
+  return {
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    owner: row.owner,
+    status: toKebabCase(row.status),
+    deliveryLabel: toValidationLabel(toKebabCase(row.status)),
+    sourceLabel: row.sourceLabel,
   };
 }

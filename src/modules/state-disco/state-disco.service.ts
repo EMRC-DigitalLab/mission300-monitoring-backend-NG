@@ -7,6 +7,8 @@ import {
   ratio,
   toDeliveryRow,
   toDiscoComparisonRowBase,
+  toStateCoverageRow,
+  toStateRecord,
   toUtilityOperationsRow,
   toValidationLabel,
 } from "@/modules/state-disco/state-disco.mappers";
@@ -572,5 +574,157 @@ export class StateDiscoService {
       record: toDeliveryRow(milestone),
       message: `${milestone.milestone} has been updated.`,
     };
+  }
+
+  async getStates(query: StateDiscoQueryDto) {
+    const stateFilter = query.state ?? "all";
+    const states =
+      stateFilter === "all"
+        ? await this.prisma.state.findMany({ orderBy: { name: "asc" } })
+        : await this.prisma.state.findMany({ where: { id: stateFilter } });
+
+    const stateIds = states.map((s) => s.id);
+    const projects = stateIds.length
+      ? await this.prisma.project.findMany({ where: { stateId: { in: stateIds } } })
+      : [];
+    const projectIds = projects.map((p) => p.id);
+    const bottlenecks = projectIds.length
+      ? await this.prisma.bottleneck.findMany({
+          where: { linkedRecord: { in: projectIds }, status: { not: "RESOLVED" } },
+        })
+      : [];
+
+    const openBottlenecksByProject = new Map<string, number>();
+    for (const b of bottlenecks) {
+      openBottlenecksByProject.set(b.linkedRecord, (openBottlenecksByProject.get(b.linkedRecord) ?? 0) + 1);
+    }
+
+    const rows = states.map((state) => {
+      const stateProjects = projects.filter((p) => p.stateId === state.id);
+      const activeProjects = stateProjects.filter((p) => p.currentStatus !== "COMPLETED").length;
+      const completedProjects = stateProjects.filter((p) => p.currentStatus === "COMPLETED").length;
+      const activeProgrammes = new Set(
+        stateProjects.filter((p) => p.currentStatus !== "COMPLETED").map((p) => p.programmeId),
+      ).size;
+      const openBottlenecks = stateProjects.reduce(
+        (sum, p) => sum + (openBottlenecksByProject.get(p.id) ?? 0),
+        0,
+      );
+      const coverageBarPercent =
+        stateProjects.length === 0 ? 0 : Math.round((completedProjects / stateProjects.length) * 100);
+
+      return toStateCoverageRow(state, {
+        activeProgrammes,
+        activeProjects,
+        openBottlenecks,
+        miniGridConnections: 0,
+        solarHomeSystems: 0,
+        coverageBarPercent,
+      });
+    });
+
+    return {
+      meta: {
+        title: "State delivery coverage",
+        description: "Validated distributed-energy delivery records where approved state breakdowns exist.",
+        lastUpdatedLabel: "Just now",
+        sourceLabel: "Rural Electrification Agency and Implementation Register",
+      },
+      notice: "Connection counts are not converted into inferred state electricity-access rates.",
+      rows,
+    };
+  }
+
+  async getStateDetail(stateId: string) {
+    const state = await this.prisma.state.findUnique({ where: { id: stateId } });
+    if (!state) throw new NotFoundException("The state profile was not found.");
+
+    const projects = await this.prisma.project.findMany({ where: { stateId }, include: { programme: true } });
+    const projectIds = projects.map((p) => p.id);
+    const bottlenecks = projectIds.length
+      ? await this.prisma.bottleneck.findMany({ where: { linkedRecord: { in: projectIds } } })
+      : [];
+
+    const activeProjects = projects.filter((p) => p.currentStatus !== "COMPLETED").length;
+    const completedProjects = projects.filter((p) => p.currentStatus === "COMPLETED").length;
+    const programmesById = new Map(projects.map((p) => [p.programmeId, p.programme]));
+    const activeProgrammes = new Set(
+      projects.filter((p) => p.currentStatus !== "COMPLETED").map((p) => p.programmeId),
+    ).size;
+    const openBottlenecks = bottlenecks.filter((b) => b.status !== "RESOLVED").length;
+    const coverageBarPercent =
+      projects.length === 0 ? 0 : Math.round((completedProjects / projects.length) * 100);
+
+    const records = [
+      ...[...programmesById.values()].map((programme) =>
+        toStateRecord({
+          id: programme.id,
+          type: "programme" as const,
+          name: programme.name,
+          owner: programme.leadInstitution,
+          status: programme.status,
+          sourceLabel: "Implementation Register",
+        }),
+      ),
+      ...projects.map((p) =>
+        toStateRecord({
+          id: p.id,
+          type: "project" as const,
+          name: p.name,
+          owner: p.owner,
+          status: p.currentStatus,
+          sourceLabel: "Implementation Register",
+        }),
+      ),
+      ...bottlenecks.map((b) =>
+        toStateRecord({
+          id: b.id,
+          type: "bottleneck" as const,
+          name: b.issue,
+          owner: b.institution,
+          status: b.status,
+          sourceLabel: "Bottleneck Register",
+        }),
+      ),
+    ];
+
+    return {
+      meta: {
+        title: `${state.name} delivery profile`,
+        description: "Delivery records linked to this state's tagged programmes, projects and bottlenecks.",
+        lastUpdatedLabel: "Just now",
+        sourceLabel: "Implementation Register and Bottleneck Register",
+      },
+      state: toStateCoverageRow(state, {
+        activeProgrammes,
+        activeProjects,
+        openBottlenecks,
+        miniGridConnections: 0,
+        solarHomeSystems: 0,
+        coverageBarPercent,
+      }),
+      notice: "Connection counts are not converted into inferred state electricity-access rates.",
+      records,
+      // No real period-over-period state snapshot mechanism exists yet -
+      // honestly empty, matching the schema's own comment ("Empty where no
+      // prior period has been recorded").
+      history: [] as unknown[],
+    };
+  }
+
+  async validateState(stateId: string, userId: string) {
+    const [state, user] = await Promise.all([
+      this.prisma.state.findUnique({ where: { id: stateId } }),
+      this.prisma.user.findUnique({ where: { id: userId } }),
+    ]);
+    if (!state) throw new NotFoundException("The state profile was not found.");
+    if (!user) throw new NotFoundException("User not found.");
+
+    const updated = await this.prisma.state.update({
+      where: { id: stateId },
+      data: { validatedByName: user.fullName, validatedAt: new Date() },
+    });
+
+    return { message: `${updated.name}'s coverage has been marked as validated by ${user.fullName}.` };
   }
 }

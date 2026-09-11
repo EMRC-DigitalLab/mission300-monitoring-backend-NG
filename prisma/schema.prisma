@@ -1031,6 +1031,11 @@ model State {
   name      String   @unique
   /// Nigeria's six geopolitical zones (e.g. "North West", "South South").
   zone      String
+  /// Null while this state's coverage aggregate is still provisional - set
+  /// by POST state-disco/states/:id/validate. Stored as a plain name
+  /// (not a User FK) since this only needs to be displayed, not queried.
+  validatedByName String?
+  validatedAt     DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

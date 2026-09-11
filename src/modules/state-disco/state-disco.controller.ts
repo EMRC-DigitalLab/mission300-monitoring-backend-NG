@@ -8,14 +8,17 @@ import { CreateDiscoDeliveryMilestoneDto } from "@/modules/state-disco/dto/creat
 import { UpdateDiscoDeliveryMilestoneDto } from "@/modules/state-disco/dto/update-disco-delivery-milestone.dto";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 
-// Phases A+B of the State/DisCo rebuild: filters, overview, comparison,
-// supply-tariff and delivery (m300-frontend/src/api/schemas/state-disco/).
-// Unlike Executive Overview and Pillar Dashboards this is real,
-// externally-sourced DisCo performance data with no existing submission
-// pipeline - admin-entered for now (see state-disco.mappers.ts's header
-// comment), so every mutation here is gated the same way KPI metadata
-// editing is. The state view is Phase C, not yet added.
+// All three phases of the State/DisCo rebuild: filters, overview,
+// comparison, supply-tariff, delivery and the state view
+// (m300-frontend/src/api/schemas/state-disco/). Unlike Executive Overview
+// and Pillar Dashboards this is real, externally-sourced DisCo performance
+// data with no existing submission pipeline - admin-entered for now (see
+// state-disco.mappers.ts's header comment), so every mutation here is
+// gated the same way KPI metadata editing is. State coverage is the one
+// exception - it's a real live aggregation over Project rows tagged with
+// a state (Project.stateId), not admin-entered.
 @ApiTags("state-disco")
 @ApiBearerAuth()
 @Controller("state-disco")
@@ -79,5 +82,22 @@ export class StateDiscoController {
     @Body() dto: UpdateDiscoDeliveryMilestoneDto,
   ) {
     return this.stateDisco.updateDeliveryMilestone(milestoneId, dto);
+  }
+
+  @Get("states")
+  getStates(@Query() query: StateDiscoQueryDto) {
+    return this.stateDisco.getStates(query);
+  }
+
+  @Get("states/:id")
+  getStateDetail(@Param("id") id: string) {
+    return this.stateDisco.getStateDetail(id);
+  }
+
+  @Roles("SYSTEM_ADMINISTRATOR")
+  @Post("states/:id/validate")
+  @AuditAction("disco.state_validated")
+  validateState(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.stateDisco.validateState(id, user.id);
   }
 }

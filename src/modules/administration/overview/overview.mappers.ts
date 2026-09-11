@@ -108,6 +108,7 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
   "disco.service_band_recorded": { label: "Recorded DisCo supply/tariff band", module: "State & DisCo" },
   "disco.milestone_created": { label: "Added a DisCo delivery milestone", module: "State & DisCo" },
   "disco.milestone_updated": { label: "Updated a DisCo delivery milestone", module: "State & DisCo" },
+  "disco.state_validated": { label: "Validated state coverage", module: "State & DisCo" },
   "report.requested": { label: "Requested a report", module: MODULE_LABELS.reports },
   "report.deleted": { label: "Deleted a report", module: MODULE_LABELS.reports },
   "submission.created": { label: "Created a submission", module: MODULE_LABELS["data-submissions"] },
