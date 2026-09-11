@@ -73,6 +73,8 @@ services:
       STORAGE_DRIVER: local
       STORAGE_LOCAL_PATH: /app/storage
       CORS_ORIGIN: ${CORS_ORIGIN}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
     ports:
       # Loopback-only - the box's existing host-level reverse proxy is
       # expected to terminate TLS for the public domain and proxy_pass to
