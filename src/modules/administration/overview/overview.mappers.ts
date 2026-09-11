@@ -105,6 +105,11 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
     label: "Recorded review decision",
     module: MODULE_LABELS["data-submissions"],
   },
+  "submission.manual_entry_saved": {
+    label: "Saved manual-entry draft",
+    module: MODULE_LABELS["data-submissions"],
+  },
+  "submission.uploaded": { label: "Uploaded submission", module: MODULE_LABELS["data-submissions"] },
   "webhook.created": { label: "Created a webhook subscription", module: MODULE_LABELS.administration },
   "webhook.deleted": { label: "Deleted a webhook subscription", module: MODULE_LABELS.administration },
 };

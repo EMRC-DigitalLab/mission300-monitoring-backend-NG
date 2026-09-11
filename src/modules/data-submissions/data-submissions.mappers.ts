@@ -1,5 +1,6 @@
 import type {
   Dataset,
+  DatasetField,
   Institution,
   KpiDefinition,
   Obligation,
@@ -12,6 +13,7 @@ import {
   workflowStatus,
   type WorkflowStatus,
 } from "@/modules/data-submissions/workflow-status";
+import { toKebabCase } from "@/common/utils/enum-casing";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -191,5 +193,73 @@ export function toDataGap(kpi: KpiWithPillar) {
     nextAction: "Assign a reporting obligation for this indicator.",
     status: null,
     availableActions: [] as string[],
+  };
+}
+
+type ObligationWithDatasetFields = Obligation & {
+  institution: Institution;
+  dataset: Dataset & { fields: DatasetField[] };
+};
+
+/** Matches entryFieldSchema exactly - helpText/placeholder are required strings but never min(1), so "" is valid. */
+function toEntryField(field: DatasetField) {
+  return {
+    id: field.id,
+    label: field.label,
+    helpText: field.helpText ?? "",
+    type: toKebabCase(field.type),
+    required: field.required,
+    unit: field.unit,
+    placeholder: "",
+    options: (field.options as { value: string; label: string }[] | null) ?? [],
+  };
+}
+
+/** Matches manualEntryDefinitionSchema exactly - the server-driven form definition behind GET .../obligations/:id/entry. */
+export function toManualEntryDefinition(obligation: ObligationWithDatasetFields) {
+  const sections = new Map<
+    string,
+    { id: string; title: string; description: string; fields: ReturnType<typeof toEntryField>[] }
+  >();
+  for (const field of [...obligation.dataset.fields].sort((a, b) => a.order - b.order)) {
+    if (!sections.has(field.sectionId)) {
+      sections.set(field.sectionId, {
+        id: field.sectionId,
+        title: field.sectionTitle,
+        description: "",
+        fields: [],
+      });
+    }
+    sections.get(field.sectionId)!.fields.push(toEntryField(field));
+  }
+
+  return {
+    obligationId: obligation.id,
+    title: `${obligation.dataset.name} — ${obligation.reportingPeriod}`,
+    institution: obligation.institution.name,
+    dataset: obligation.dataset.name,
+    reportingPeriod: obligation.reportingPeriod,
+    sections: [...sections.values()],
+  };
+}
+
+// Matches the mock's own fixture values (uploadDefinitions in
+// m300-frontend/src/mocks/data/data-submissions/) - not specified per-
+// dataset anywhere in this schema, so a fixed reasonable constant here.
+const ACCEPTED_FILE_TYPES = [".xlsx", ".csv"];
+const ACCEPTED_FILE_TYPES_LABEL = "XLSX or CSV";
+const MAX_FILE_SIZE_MB = 20;
+
+/** Matches uploadDefinitionSchema exactly - the info behind GET .../obligations/:id/upload. */
+export function toUploadDefinition(obligation: ObligationWithDatasetFields) {
+  return {
+    obligationId: obligation.id,
+    institution: obligation.institution.name,
+    dataset: obligation.dataset.name,
+    reportingPeriod: obligation.reportingPeriod,
+    template: buildTemplate(obligation.dataset),
+    acceptedFileTypes: ACCEPTED_FILE_TYPES,
+    acceptedFileTypesLabel: ACCEPTED_FILE_TYPES_LABEL,
+    maxFileSizeMb: MAX_FILE_SIZE_MB,
   };
 }

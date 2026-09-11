@@ -1,16 +1,27 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
+import { StorageService } from "@/storage/storage.service";
 import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
+import { workflowStatus } from "@/modules/data-submissions/workflow-status";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { DataSubmissionsQueryDto } from "@/modules/data-submissions/dto/data-submissions-query.dto";
+import type { ManualEntryDto } from "@/modules/data-submissions/dto/manual-entry.dto";
 import {
   toDataGap,
   toDatasetView,
+  toManualEntryDefinition,
   toObligationView,
   toOverdueItem,
   toSubmissionListItem,
+  toUploadDefinition,
 } from "@/modules/data-submissions/data-submissions.mappers";
+import {
+  buildSubmissionItems,
+  generateTemplateBuffer,
+  parseSubmissionFile,
+  validateFieldValues,
+} from "@/modules/data-submissions/dataset-template";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -25,10 +36,17 @@ const SUBMISSION_INCLUDE = {
   submittedBy: true,
   obligation: { include: { dataset: true } },
 } as const;
+const OBLIGATION_WITH_FIELDS_INCLUDE = {
+  institution: true,
+  dataset: { include: { fields: true } },
+} as const;
 
 @Injectable()
 export class DataSubmissionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   async getFilters() {
     const [institutions, datasets, obligationPeriods] = await Promise.all([
@@ -195,6 +213,132 @@ export class DataSubmissionsService {
       orderBy: { name: "asc" },
     });
     return paginate(kpis.map(toDataGap), query.page ?? 1, pageSize);
+  }
+
+  async getManualEntryDefinition(obligationId: string) {
+    const obligation = await this.findObligationWithFields(obligationId);
+    return toManualEntryDefinition(obligation);
+  }
+
+  async getUploadDefinition(obligationId: string) {
+    const obligation = await this.findObligationWithFields(obligationId);
+    return toUploadDefinition(obligation);
+  }
+
+  /**
+   * Mirrors the mock's own handler exactly (m300-frontend/src/mocks/
+   * handlers/data-submissions.ts): it doesn't validate or compute
+   * anything either, just records the draft and points back at the
+   * submissions list, not the validation queue - "Server validation is
+   * ready to run" implies that happens as a later step, unlike upload
+   * (below), which validates synchronously and goes straight to
+   * pending-review. This IS a real gap in the frontend's own contract
+   * (no endpoint anywhere promotes a manual-entry draft to pending-
+   * review) - matched deliberately rather than invented around.
+   */
+  async saveManualEntry(user: AuthenticatedUser, obligationId: string, dto: ManualEntryDto) {
+    const obligation = await this.findObligationWithFields(obligationId);
+    const items = buildSubmissionItems(obligation.dataset.fields, dto.values, obligation.reportingPeriod);
+
+    const submission = await this.prisma.submission.create({
+      data: {
+        institutionId: obligation.institutionId,
+        submittedById: user.id,
+        method: "MANUAL_ENTRY",
+        status: "DRAFT",
+        obligationId: obligation.id,
+        sourceReference: dto.sourceReference ?? "",
+        notes: dto.notes ?? "",
+        items: { create: items },
+      },
+    });
+
+    return {
+      submissionId: submission.id,
+      version: submission.version,
+      status: workflowStatus("draft"),
+      message: "Draft saved. Server validation is ready to run.",
+      nextUrl: "/data-submissions/submissions",
+    };
+  }
+
+  /**
+   * Real contract requirement (docs/API.md): parsing, field validation and
+   * value extraction are backend responsibility, not the frontend's - the
+   * mock's own upload handler only fabricates a fixed response, this does
+   * the real work. Rejects outright (400) on a validation failure rather
+   * than accepting-with-issues, since there's nowhere to persist/display
+   * per-submission issues until Phase 3 builds the validation detail view.
+   */
+  async uploadSubmission(
+    user: AuthenticatedUser,
+    obligationId: string,
+    file: Express.Multer.File | undefined,
+    dto: { sourceReference?: string; notes?: string },
+  ) {
+    const obligation = await this.findObligationWithFields(obligationId);
+
+    if (!file) throw new BadRequestException("Select a completed template to upload.");
+    const sourceReference = dto.sourceReference?.trim();
+    if (!sourceReference) throw new BadRequestException("Provide the source reference for this submission.");
+
+    let values: Record<string, string>;
+    try {
+      values = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset.fields);
+    } catch {
+      throw new BadRequestException("Could not read the uploaded file - use the provided template.");
+    }
+
+    const issues = validateFieldValues(obligation.dataset.fields, values);
+    if (issues.length > 0) {
+      throw new BadRequestException(
+        `The uploaded file has ${issues.length} problem${issues.length === 1 ? "" : "s"}: ` +
+          issues.map((issue) => issue.message).join(" "),
+      );
+    }
+
+    const items = buildSubmissionItems(obligation.dataset.fields, values, obligation.reportingPeriod);
+    const stored = await this.storage.save("submissions", file);
+
+    const submission = await this.prisma.submission.create({
+      data: {
+        institutionId: obligation.institutionId,
+        submittedById: user.id,
+        method: "UPLOAD",
+        status: "PENDING",
+        obligationId: obligation.id,
+        sourceReference,
+        notes: dto.notes ?? "",
+        sourceFileUrl: stored.key,
+        items: { create: items },
+      },
+    });
+
+    return {
+      submissionId: submission.id,
+      version: submission.version,
+      status: workflowStatus("pending-review"),
+      message: "Upload received. Backend validation passed and the submission is ready for review.",
+      nextUrl: `/data-submissions/validation/${submission.id}`,
+    };
+  }
+
+  async getTemplate(fileName: string): Promise<Buffer> {
+    const dataset = await this.prisma.dataset.findFirst({
+      where: { templateFileName: fileName },
+      include: { fields: true },
+    });
+    if (!dataset) throw new NotFoundException("Template not found.");
+    return generateTemplateBuffer(dataset.fields);
+  }
+
+  private async findObligationWithFields(obligationId: string) {
+    const obligation = await this.prisma.obligation.findUnique({
+      where: { id: obligationId },
+      include: OBLIGATION_WITH_FIELDS_INCLUDE,
+    });
+    if (!obligation) throw new NotFoundException("The reporting obligation was not found.");
+    return obligation;
   }
 }
 
