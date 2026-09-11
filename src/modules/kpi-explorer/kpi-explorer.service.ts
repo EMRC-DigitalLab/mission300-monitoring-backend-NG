@@ -1,8 +1,12 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import type { KpiExplorerQueryDto } from "@/modules/kpi-explorer/dto/kpi-explorer-query.dto";
+import type { UpdateKpiMetadataDto } from "@/modules/kpi-explorer/dto/update-kpi-metadata.dto";
+import type { CreateKpiDto } from "@/modules/kpi-explorer/dto/create-kpi.dto";
+import type { SetKpiActiveDto } from "@/modules/kpi-explorer/dto/set-kpi-active.dto";
 import { toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -143,6 +147,139 @@ export class KpiExplorerService {
     });
 
     return toKpiProfile(kpi, values);
+  }
+
+  /**
+   * Deliberately excludes category/readiness/pillar/name (not part of
+   * updateKpiMetadataRequestSchema - those are effectively permanent once
+   * an indicator is registered) and never touches current/history/
+   * validationStatus/confidence - those only ever change via an approved
+   * data submission (see toKpiProfile()'s own comment).
+   */
+  async updateMetadata(code: string, dto: UpdateKpiMetadataDto) {
+    const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
+    if (!kpi) throw new NotFoundException("KPI not found.");
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.kpiDefinition.update({
+        where: { id: kpi.id },
+        data: {
+          definition: dto.definition,
+          formula: dto.formula,
+          unit: dto.unit,
+          aggregation: dto.aggregation,
+          frequency: dto.frequency,
+          disaggregation: dto.disaggregation,
+          limitations: dto.limitations,
+          baseline: dto.baseline,
+          baselineLabel: dto.baselineLabel,
+          target: dto.target,
+          targetLabel: dto.targetLabel,
+          targetDate: dto.targetDate,
+          sourceInstitution: dto.sourceInstitution,
+          sourceDataset: dto.sourceDataset,
+          sourceReference: dto.sourceReference,
+          // Only touched when the field is actually present in the
+          // request - omitting it must leave the existing alignment (or
+          // lack of one) untouched, matching the schema's own comment.
+          // Prisma needs the Prisma.JsonNull sentinel to write a real SQL
+          // NULL into a Json column - a plain `null` is only valid for
+          // "don't touch this field", the opposite of what's meant here.
+          ...(dto.externalStandardAlignment !== undefined
+            ? {
+                externalStandardAlignment:
+                  dto.externalStandardAlignment === null
+                    ? Prisma.JsonNull
+                    : (dto.externalStandardAlignment as unknown as Prisma.InputJsonValue),
+              }
+            : {}),
+        },
+      });
+
+      // Replace-all semantics (updateKpiMetadataRequestSchema's own
+      // comment): omitting `targets` leaves existing periodic checkpoints
+      // untouched; sending an array (including []) replaces the full list.
+      if (dto.targets !== undefined) {
+        await tx.kpiTargetPoint.deleteMany({ where: { kpiDefinitionId: kpi.id } });
+        if (dto.targets.length > 0) {
+          await tx.kpiTargetPoint.createMany({
+            data: dto.targets.map((point) => ({
+              kpiDefinitionId: kpi.id,
+              period: point.period,
+              value: point.value,
+              label: point.label,
+            })),
+          });
+        }
+      }
+    });
+
+    return this.getProfile(code);
+  }
+
+  /**
+   * A new indicator starts with no baseline/target/current value at all -
+   * those arrive later through PATCH .../kpis/:id (baseline/target) or a
+   * data submission (current), never typed in here. isActive defaults to
+   * true; validationStatus/confidence resolve to "future"/"future-gap"
+   * automatically (no KpiValue exists yet) via the same derivation every
+   * other KPI uses.
+   */
+  async create(dto: CreateKpiDto) {
+    const existing = await this.prisma.kpiDefinition.findUnique({ where: { code: dto.id } });
+    if (existing) throw new ConflictException("A KPI with this identifier already exists.");
+
+    const pillar = await this.prisma.pillar.findUnique({ where: { slug: dto.pillar } });
+    if (!pillar) throw new BadRequestException("Unknown pillar.");
+
+    const kpi = await this.prisma.kpiDefinition.create({
+      data: {
+        code: dto.id,
+        name: dto.name,
+        pillarId: pillar.id,
+        category: dto.category,
+        unit: dto.unit,
+        definition: dto.definition,
+        formula: dto.formula,
+        frequency: dto.frequency,
+        sourceInstitution: dto.sourceInstitution,
+        sourceDataset: dto.sourceDataset,
+        readiness: dto.readiness,
+      },
+      include: { pillar: true },
+    });
+
+    return { row: toCatalogueRow(kpi, null), message: `${dto.name} was added to the catalogue.` };
+  }
+
+  /**
+   * Reversible, never deletes - a retired indicator that already
+   * published values must stay traceable (setKpiActiveRequestSchema's own
+   * comment), so this only flips isActive and hides it from the default
+   * catalogue (getOverview()'s `where: { isActive: true }`).
+   */
+  async setActive(code: string, dto: SetKpiActiveDto) {
+    const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
+    if (!kpi) throw new NotFoundException("KPI not found.");
+
+    const updated = await this.prisma.kpiDefinition.update({
+      where: { id: kpi.id },
+      data: { isActive: dto.active },
+      include: { pillar: true },
+    });
+
+    const latestValue = await this.prisma.kpiValue.findFirst({
+      where: { kpiDefinitionId: kpi.id },
+      include: VALUE_INCLUDE,
+      orderBy: { approvedAt: "desc" },
+    });
+
+    return {
+      row: toCatalogueRow(updated, latestValue),
+      message: dto.active
+        ? `${updated.name} was restored to the catalogue.`
+        : `${updated.name} was retired from the catalogue.`,
+    };
   }
 }
 

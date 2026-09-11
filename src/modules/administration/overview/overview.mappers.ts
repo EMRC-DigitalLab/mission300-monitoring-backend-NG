@@ -110,6 +110,9 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
     module: MODULE_LABELS["data-submissions"],
   },
   "submission.uploaded": { label: "Uploaded submission", module: MODULE_LABELS["data-submissions"] },
+  "kpi.metadata_updated": { label: "Updated KPI metadata", module: MODULE_LABELS["kpi-explorer"] },
+  "kpi.created": { label: "Registered a new KPI", module: MODULE_LABELS["kpi-explorer"] },
+  "kpi.active_toggled": { label: "Retired or restored a KPI", module: MODULE_LABELS["kpi-explorer"] },
   "webhook.created": { label: "Created a webhook subscription", module: MODULE_LABELS.administration },
   "webhook.deleted": { label: "Deleted a webhook subscription", module: MODULE_LABELS.administration },
 };
