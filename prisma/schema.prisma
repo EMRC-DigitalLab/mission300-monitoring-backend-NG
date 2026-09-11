@@ -211,9 +211,34 @@ model Pillar {
   @@map("pillars")
 }
 
+// Matches readinessTierSchema in m300-frontend/src/api/schemas/kpi-
+// explorer.ts exactly.
+enum KpiReadinessTier {
+  CORE
+  SUPPORTING
+  FUTURE
+}
+
+// Real contract requires a `direction` on every KPI profile
+// (improvementDirectionSchema) but no mutation endpoint (create or edit)
+// ever sets it - there's no way to configure this via the API at all, so
+// it's a stored default rather than something PATCH/POST accept.
+enum KpiDirection {
+  HIGHER_IS_BETTER
+  LOWER_IS_BETTER
+}
+
+// Matches the profile's targetBasis enum ('level'|'growth-rate'|'none') -
+// see kpiProfileSchema.targetBasis in kpi-explorer.ts.
+enum KpiTargetBasis {
+  LEVEL
+  GROWTH_RATE
+  NONE
+}
+
 model KpiDefinition {
   id          String   @id @default(cuid())
-  code        String   @unique // stable machine key, e.g. "access-rate-national"
+  code        String   @unique // the real contract's human-facing `id` (e.g. "M300-GEN-004") - Prisma's own cuid `id` above is purely internal/FK plumbing
   name        String
   unit        String
   pillarId    String
@@ -222,12 +247,63 @@ model KpiDefinition {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // --- KPI Explorer profile metadata (all editable via PATCH .../kpis/:id,
+  // except direction - see KpiDirection above) ---
+  category           String            @default("")
+  readiness          KpiReadinessTier  @default(CORE)
+  definition         String            @default("")
+  formula            String            @default("")
+  aggregation        String            @default("")
+  frequency          String            @default("")
+  disaggregation     String            @default("")
+  limitations        String            @default("")
+  sourceInstitution  String            @default("")
+  sourceDataset      String            @default("")
+  sourceReference    String            @default("")
+  version            String            @default("1")
+  direction          KpiDirection      @default(HIGHER_IS_BETTER)
+
+  // --- Baseline/target (the single primary values every existing consumer
+  // renders) - `targetPoints` below is the separate, additive periodic
+  // checkpoint history (kpiTargetPointSchema). validationStatus/confidence/
+  // current/history are NEVER stored - always derived at read time from
+  // KpiValue + the Submission status that produced it, matching the real
+  // contract's own rule that those only change via an approved submission.
+  baseline           Decimal?
+  baselineLabel      String            @default("")
+  target             Decimal?
+  targetLabel        String            @default("")
+  targetDate         String?
+  targetBasis        KpiTargetBasis?
+  targetBasisLabel   String?
+  /// Shape: { standard, inclusions[], exclusions[], periodType, assumptions[] } - see externalStandardAlignmentSchema. Null for the common case of no external standard mapped.
+  externalStandardAlignment Json?
+
   values      KpiValue[]
   submissionItems SubmissionItem[]
   datasetFields   DatasetField[]
+  targetPoints    KpiTargetPoint[]
 
   @@index([pillarId])
   @@map("kpi_definitions")
+}
+
+// One periodic target checkpoint (kpiTargetPointSchema) - additive to
+// KpiDefinition's own single primary target/targetLabel/targetDate above,
+// e.g. 2026 and 2028 milestones on the way to a 2030 goal. Replace-all
+// semantics on PATCH .../kpis/:id (see updateKpiMetadataRequestSchema's
+// own comment) - delete every row for a KPI and recreate from the
+// request's `targets[]`, rather than trying to diff/match periods.
+model KpiTargetPoint {
+  id              String        @id @default(cuid())
+  kpiDefinitionId String
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Cascade)
+  period          String
+  value           Decimal
+  label           String
+
+  @@index([kpiDefinitionId])
+  @@map("kpi_target_points")
 }
 
 // The "live" value shown on dashboards. Written ONLY when the submission

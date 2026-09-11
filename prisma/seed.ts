@@ -154,6 +154,11 @@ async function main() {
   }
   const lastMileAccess = pillarsBySlug.get("last-mile-access")!;
 
+  // Real KPI Explorer contract fields all filled with real values (not
+  // left at the column defaults) - several are required non-empty
+  // strings on the frontend's own schema (definition/formula/unit/
+  // sourceInstitution/sourceDataset/category), so a seed row left at
+  // "" would violate the real contract the moment this KPI is exposed.
   const accessRateKpi = await prisma.kpiDefinition.upsert({
     where: { code: "access-rate-national" },
     create: {
@@ -161,6 +166,23 @@ async function main() {
       name: "National Electricity Access Rate",
       unit: "%",
       pillarId: lastMileAccess.id,
+      category: "Outcome",
+      readiness: "CORE",
+      definition: "Percentage of Nigerian households with a grid or off-grid electricity connection.",
+      formula: "(Connected households / Total households) x 100",
+      aggregation: "National average, weighted by household count",
+      frequency: "Quarterly",
+      disaggregation: "By state and by Distribution Company",
+      limitations: "Off-grid connections are self-reported by institutions and not independently metered.",
+      sourceInstitution: "Sample DisCo",
+      sourceDataset: "Quarterly Electricity Access Expansion",
+      sourceReference: "M300 KPI Matrix v2.0",
+      baseline: 45.2,
+      baselineLabel: "45.2% (2025 baseline)",
+      target: 90,
+      targetLabel: "90% national access by 2030",
+      targetDate: "2030",
+      targetBasis: "LEVEL",
     },
     update: {},
   });

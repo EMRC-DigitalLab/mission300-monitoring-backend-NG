@@ -25,6 +25,7 @@ import { NotificationsModule } from "@/notifications/notifications.module";
 import { FilesModule } from "@/files/files.module";
 import { ProfileModule } from "@/modules/profile/profile.module";
 import { DataSubmissionsModule } from "@/modules/data-submissions/data-submissions.module";
+import { KpiExplorerModule } from "@/modules/kpi-explorer/kpi-explorer.module";
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { DataSubmissionsModule } from "@/modules/data-submissions/data-submissio
     FilesModule,
     ProfileModule,
     DataSubmissionsModule,
+    KpiExplorerModule,
   ],
   providers: [
     // Every route requires a valid JWT unless marked @Public().
