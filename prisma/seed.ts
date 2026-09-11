@@ -643,6 +643,145 @@ async function main() {
     });
   }
 
+  // State/DisCo Phase A: real Nigerian geography (37 states incl. FCT,
+  // grouped by the 6 geopolitical zones) and the 11 real Distribution
+  // Companies as Institution rows (type "Disco" - a DisCo is not a
+  // separate entity, see schema.prisma's comment on DiscoPerformanceRecord).
+  // State/zone names are real reference data, same category as Pillar
+  // names - only the DisCo PERFORMANCE figures below are placeholder test
+  // fixtures pending real admin entry.
+  const STATES: { name: string; zone: string }[] = [
+    { name: "Benue", zone: "North Central" },
+    { name: "Kogi", zone: "North Central" },
+    { name: "Kwara", zone: "North Central" },
+    { name: "Nasarawa", zone: "North Central" },
+    { name: "Niger", zone: "North Central" },
+    { name: "Plateau", zone: "North Central" },
+    { name: "Federal Capital Territory", zone: "North Central" },
+    { name: "Adamawa", zone: "North East" },
+    { name: "Bauchi", zone: "North East" },
+    { name: "Borno", zone: "North East" },
+    { name: "Gombe", zone: "North East" },
+    { name: "Taraba", zone: "North East" },
+    { name: "Yobe", zone: "North East" },
+    { name: "Jigawa", zone: "North West" },
+    { name: "Kaduna", zone: "North West" },
+    { name: "Kano", zone: "North West" },
+    { name: "Katsina", zone: "North West" },
+    { name: "Kebbi", zone: "North West" },
+    { name: "Sokoto", zone: "North West" },
+    { name: "Zamfara", zone: "North West" },
+    { name: "Abia", zone: "South East" },
+    { name: "Anambra", zone: "South East" },
+    { name: "Ebonyi", zone: "South East" },
+    { name: "Enugu", zone: "South East" },
+    { name: "Imo", zone: "South East" },
+    { name: "Akwa Ibom", zone: "South South" },
+    { name: "Bayelsa", zone: "South South" },
+    { name: "Cross River", zone: "South South" },
+    { name: "Delta", zone: "South South" },
+    { name: "Edo", zone: "South South" },
+    { name: "Rivers", zone: "South South" },
+    { name: "Ekiti", zone: "South West" },
+    { name: "Lagos", zone: "South West" },
+    { name: "Ogun", zone: "South West" },
+    { name: "Ondo", zone: "South West" },
+    { name: "Osun", zone: "South West" },
+    { name: "Oyo", zone: "South West" },
+  ];
+  const statesByName = new Map<string, Awaited<ReturnType<typeof prisma.state.upsert>>>();
+  for (const s of STATES) {
+    const row = await prisma.state.upsert({ where: { name: s.name }, create: s, update: { zone: s.zone } });
+    statesByName.set(s.name, row);
+  }
+
+  const DISCOS = [
+    "Abuja Electricity Distribution Company",
+    "Benin Electricity Distribution Company",
+    "Eko Electricity Distribution Company",
+    "Enugu Electricity Distribution Company",
+    "Ibadan Electricity Distribution Company",
+    "Ikeja Electric",
+    "Jos Electricity Distribution Company",
+    "Kaduna Electricity Distribution Company",
+    "Kano Electricity Distribution Company",
+    "Port Harcourt Electricity Distribution Company",
+    "Yola Electricity Distribution Company",
+  ];
+  const discosByName = new Map<string, Awaited<ReturnType<typeof prisma.institution.upsert>>>();
+  for (const name of DISCOS) {
+    const row = await prisma.institution.upsert({
+      where: { id: `seed-disco-${name.toLowerCase().replace(/[^a-z]+/g, "-")}` },
+      create: { id: `seed-disco-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`, name, type: "Disco" },
+      update: {},
+    });
+    discosByName.set(name, row);
+  }
+
+  // Two reporting periods for Ikeja Electric specifically, so a real
+  // period-over-period trend can be computed (every other DisCo gets a
+  // single period - honest zero-trend, not an invented comparison).
+  const ikeja = discosByName.get("Ikeja Electric")!;
+  await prisma.discoPerformanceRecord.upsert({
+    where: { institutionId_period: { institutionId: ikeja.id, period: "Q2 2025" } },
+    create: {
+      institutionId: ikeja.id,
+      period: "Q2 2025",
+      activeCustomers: 1_450_000,
+      meteredCustomers: 870_000,
+      energyReceivedMwh: 620_000,
+      energyBilledMwh: 470_000,
+      revenueBilledNgn: 42_000_000_000,
+      revenueCollectedNgn: 33_000_000_000,
+      remittanceObligationNgn: 18_000_000_000,
+      remittanceActualNgn: 12_000_000_000,
+      allowedLossRatePercent: 18,
+      atccLossRatePercent: 26.5,
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+  await prisma.discoPerformanceRecord.upsert({
+    where: { institutionId_period: { institutionId: ikeja.id, period: "Q3 2025" } },
+    create: {
+      institutionId: ikeja.id,
+      period: "Q3 2025",
+      activeCustomers: 1_480_000,
+      meteredCustomers: 930_000,
+      energyReceivedMwh: 640_000,
+      energyBilledMwh: 500_000,
+      revenueBilledNgn: 44_000_000_000,
+      revenueCollectedNgn: 36_000_000_000,
+      remittanceObligationNgn: 18_500_000_000,
+      remittanceActualNgn: 14_000_000_000,
+      allowedLossRatePercent: 18,
+      atccLossRatePercent: 24.8,
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
+  const eko = discosByName.get("Eko Electricity Distribution Company")!;
+  await prisma.discoPerformanceRecord.upsert({
+    where: { institutionId_period: { institutionId: eko.id, period: "Q3 2025" } },
+    create: {
+      institutionId: eko.id,
+      period: "Q3 2025",
+      activeCustomers: 980_000,
+      meteredCustomers: 640_000,
+      energyReceivedMwh: 410_000,
+      energyBilledMwh: 330_000,
+      revenueBilledNgn: 31_000_000_000,
+      revenueCollectedNgn: 26_500_000_000,
+      remittanceObligationNgn: 13_000_000_000,
+      remittanceActualNgn: 10_500_000_000,
+      allowedLossRatePercent: 15,
+      atccLossRatePercent: 19.2,
+      validationStatus: "PROVISIONAL",
+    },
+    update: {},
+  });
+
   // One example Dataset/DatasetField/Obligation so the Data Submissions
   // module's read endpoints (GET .../datasets, .../obligations) have
   // something real to return - the manual-entry form definition is built

@@ -75,6 +75,9 @@ model Institution {
   dataCustodians DataCustodian[]
   ownedDatasets Dataset[]       @relation("DatasetOwner")
   obligations   Obligation[]
+  discoPerformanceRecords DiscoPerformanceRecord[]
+  discoServiceBands       DiscoServiceBand[]
+  discoDeliveryMilestones DiscoDeliveryMilestone[]
 
   @@map("institutions")
 }
@@ -660,6 +663,14 @@ model Project {
   /// different pillar than its parent programme's primary pillar.
   pillarId           String
   pillar              Pillar             @relation(fields: [pillarId], references: [id])
+  /// Not in the real projectRecordSchema contract - State/DisCo's own
+  /// coverage-by-state aggregation needs a real, explicitly-tagged state
+  /// (the spec is explicit: never infer a state from the free-text
+  /// `location` string above). Null means "not yet tagged to a state" -
+  /// such a project honestly does not contribute to any state's coverage
+  /// numbers, rather than being force-matched by guesswork.
+  stateId            String?
+  state               State?             @relation(fields: [stateId], references: [id])
   lifecycleStage     LifecycleStage      @default(IDENTIFICATION)
   programType        ProgramType         @default(GOVERNMENT_FUNDED)
   /// Null where funding has not yet been secured.
@@ -698,6 +709,7 @@ model Project {
 
   @@index([programmeId])
   @@index([pillarId])
+  @@index([stateId])
   @@map("projects")
 }
 
@@ -988,4 +1000,124 @@ model WebhookDelivery {
 
   @@index([subscriptionId, createdAt])
   @@map("webhook_deliveries")
+}
+
+// --- State & DisCo -----------------------------------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/state-disco/. Unlike
+// Executive Overview and Pillar Dashboards, this is NOT a pure read-
+// composition layer - the frontend mock's own data here is static, hand-
+// authored fixture data, not derived from any other register (confirmed
+// directly: mocks/handlers/state-disco.ts just filters flat arrays, no
+// buildXxx() derivation function like Programs/Bottlenecks/Executive
+// Overview have). DisCo financial/operational performance genuinely comes
+// from external NERC regulatory records nothing else in this schema
+// tracks - so these are real entities with their own admin-entry
+// endpoints, not derived from KpiDefinition/Programme/Project at all. The
+// one place this DOES connect to existing data is State coverage
+// (miniGridConnections/activeProjects/openBottlenecks per state), which
+// is a genuine live aggregation over Project rows explicitly tagged with
+// a state (Project.stateId) - the spec is explicit that a state value must
+// never be inferred from free-text location, so an untagged project
+// honestly contributes to no state's numbers.
+//
+// A DisCo is not a new kind of entity here - it's an existing Institution
+// row (Institution.type already documents "Disco" as an example type),
+// so these all reference Institution directly rather than a redundant
+// parallel "DistributionCompany" table.
+
+model State {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Nigeria's six geopolitical zones (e.g. "North West", "South South").
+  zone      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects  Project[]
+
+  @@map("states")
+}
+
+enum ServiceBand {
+  A
+  B
+  C
+  D
+  E
+}
+
+/// One reporting-period snapshot of a DisCo institution's metering/energy/
+/// revenue/remittance position - admin-entered for now (no submission
+/// workflow yet), matching how a KPI's baseline/target are set today.
+/// `period`-stamped like KpiValue so a real trend can be computed once 2+
+/// periods exist for the same institution.
+model DiscoPerformanceRecord {
+  id                      String           @id @default(cuid())
+  institutionId           String
+  institution             Institution      @relation(fields: [institutionId], references: [id])
+  period                  String
+  activeCustomers         Int
+  meteredCustomers        Int
+  energyReceivedMwh       Decimal
+  energyBilledMwh         Decimal
+  revenueBilledNgn        Decimal
+  revenueCollectedNgn     Decimal
+  remittanceObligationNgn Decimal
+  remittanceActualNgn     Decimal
+  /// The applicable Multi-Year Tariff Order / Performance Improvement Plan
+  /// allowed loss-rate benchmark for this DisCo and period.
+  allowedLossRatePercent  Decimal
+  atccLossRatePercent     Decimal
+  validationStatus        ValidationStatus @default(PROVISIONAL)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@unique([institutionId, period])
+  @@index([institutionId])
+  @@map("disco_performance_records")
+}
+
+/// Current (not period-historical) supply hours and approved tariff per
+/// service band A-E for a DisCo institution - one row per (institution, band).
+model DiscoServiceBand {
+  id                String      @id @default(cuid())
+  institutionId     String
+  institution       Institution @relation(fields: [institutionId], references: [id])
+  band              ServiceBand
+  /// e.g. "MYTO 2024 Minor Review" - the approved tariff order this rate comes from.
+  effectiveOrder    String
+  supplyHoursPerDay Decimal
+  tariffNgnPerKwh   Decimal
+  /// Share of this DisCo's customer base or demand in this band.
+  intensityPercent  Decimal
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([institutionId, band])
+  @@map("disco_service_bands")
+}
+
+/// A Performance Improvement Plan milestone for a DisCo institution, linked
+/// to a service band and optionally an open bottleneck (free text - the
+/// real contract's own `bottleneck` field is a string, not a Bottleneck FK).
+model DiscoDeliveryMilestone {
+  id                  String          @id @default(cuid())
+  institutionId       String
+  institution         Institution     @relation(fields: [institutionId], references: [id])
+  milestone           String
+  serviceBand         ServiceBand
+  dueDate             DateTime
+  executionStatus     ExecutionStatus @default(ON_TRACK)
+  /// Null until actually achieved.
+  achievedDate        DateTime?
+  evidenceUrl         String?
+  reportingCompliance String          @default("")
+  bottleneck          String          @default("")
+  validationStatus    ValidationStatus @default(PROVISIONAL)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([institutionId])
+  @@map("disco_delivery_milestones")
 }

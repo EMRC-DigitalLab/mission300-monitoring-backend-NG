@@ -28,6 +28,7 @@ import { DataSubmissionsModule } from "@/modules/data-submissions/data-submissio
 import { KpiExplorerModule } from "@/modules/kpi-explorer/kpi-explorer.module";
 import { ExecutiveOverviewModule } from "@/modules/executive-overview/executive-overview.module";
 import { PillarDashboardModule } from "@/modules/pillar-dashboard/pillar-dashboard.module";
+import { StateDiscoModule } from "@/modules/state-disco/state-disco.module";
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { PillarDashboardModule } from "@/modules/pillar-dashboard/pillar-dashboa
     KpiExplorerModule,
     ExecutiveOverviewModule,
     PillarDashboardModule,
+    StateDiscoModule,
   ],
   providers: [
     // Every route requires a valid JWT unless marked @Public().

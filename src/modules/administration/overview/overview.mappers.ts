@@ -104,6 +104,7 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
   // bottlenecks.ts's own recordAuditEvent() module string exactly.
   "bottleneck.created": { label: "Raised a bottleneck", module: "Bottlenecks & Exceptions" },
   "bottleneck.status_updated": { label: "Updated bottleneck status", module: "Bottlenecks & Exceptions" },
+  "disco.performance_recorded": { label: "Recorded DisCo performance", module: "State & DisCo" },
   "report.requested": { label: "Requested a report", module: MODULE_LABELS.reports },
   "report.deleted": { label: "Deleted a report", module: MODULE_LABELS.reports },
   "submission.created": { label: "Created a submission", module: MODULE_LABELS["data-submissions"] },
