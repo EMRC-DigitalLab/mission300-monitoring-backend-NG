@@ -27,6 +27,42 @@ enum RoleName {
   READ_ONLY_USER
 }
 
+// PENDING: invited but hasn't set a password yet (cannot log in).
+// ACTIVE: normal, can log in. INACTIVE/SUSPENDED: admin-disabled, cannot
+// log in - see auth.service.ts's login() for exactly which states block it.
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Permission {
+  VIEW
+  SUBMIT
+  EDIT
+  VALIDATE
+  APPROVE
+  EXPORT
+  ADMINISTER
+}
+
+// Display/reference metadata for the 7 fixed roles - NOT a dynamic role
+// system. The frontend has no create/edit/delete-role endpoint anywhere;
+// this table exists purely so GET /administration can return label,
+// description, permissions and reachable modules per role without hardcoding
+// display strings in application code. Seeded once (see prisma/seed.ts),
+// never written to by any API route.
+model RoleDefinition {
+  role        RoleName     @id
+  label       String
+  description String
+  permissions Permission[]
+  modules     String[]
+
+  @@map("role_definitions")
+}
+
 model Institution {
   id            String   @id @default(cuid())
   name          String
@@ -47,7 +83,7 @@ model User {
   passwordHash   String
   fullName       String
   role           RoleName
-  isActive       Boolean     @default(true)
+  status         AccountStatus @default(PENDING)
   institutionId  String?
   institution    Institution? @relation(fields: [institutionId], references: [id])
   createdAt      DateTime    @default(now())
@@ -59,9 +95,28 @@ model User {
   reports          Report[]
   uploadedFiles    UploadedFile[]
   webhookSubscriptions WebhookSubscription[]
+  passwordResetTokens  PasswordResetToken[]
 
   @@index([institutionId])
   @@map("users")
+}
+
+// One mechanism, two callers: an invited user setting their first password,
+// and an existing user resetting a forgotten one. Both just need to prove
+// they own the email, then set a password - see AuthService.setPassword().
+// tokenHash, never the raw token (same principle as passwordHash) - a stolen
+// DB row can't be replayed as a working link.
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // Generic file storage record - any feature that lets a user upload an

@@ -30,6 +30,17 @@ export const envSchema = z.object({
   // is settled, and set EMAIL_FROM as a real env var/secret rather than
   // relying on this default at that point.
   EMAIL_FROM: z.string().default("M300 Compact Dashboard <notifications@m300.energymrc.ng>"),
+
+  // Base URL of the frontend - used only to build set-password/reset-password
+  // links in emails (e.g. `${FRONTEND_URL}/account/set-password?token=...`).
+  FRONTEND_URL: z.string().default("http://localhost:5173"),
+
+  // First-boot only: if the users table is empty, one SYSTEM_ADMINISTRATOR
+  // is created from these two values (see bootstrap-admin.service.ts) so an
+  // invite-only system has someone able to invite anyone else. Optional -
+  // without them, an empty DB just stays empty until seeded another way.
+  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

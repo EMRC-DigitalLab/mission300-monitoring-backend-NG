@@ -6,6 +6,7 @@ import { validateEnv } from "@/config/env.validation";
 import { PrismaModule } from "@/prisma/prisma.module";
 import { RabbitmqModule } from "@/events/rabbitmq.module";
 import { StorageModule } from "@/storage/storage.module";
+import { EmailModule } from "@/notifications/email/email.module";
 import { JwtAuthGuard } from "@/common/guards/jwt-auth.guard";
 import { RolesGuard } from "@/common/guards/roles.guard";
 import { AuditLogInterceptor } from "@/common/interceptors/audit-log.interceptor";
@@ -45,6 +46,7 @@ import { FilesModule } from "@/files/files.module";
     PrismaModule,
     RabbitmqModule,
     StorageModule,
+    EmailModule,
 
     AuthModule,
     HealthModule,

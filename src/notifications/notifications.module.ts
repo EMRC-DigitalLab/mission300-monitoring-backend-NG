@@ -1,12 +1,14 @@
 import { Module } from "@nestjs/common";
-import { EmailService } from "@/notifications/email/email.service";
 import { WebhooksService } from "@/notifications/webhooks/webhooks.service";
 import { WebhooksController } from "@/notifications/webhooks/webhooks.controller";
 import { NotificationsConsumer } from "@/notifications/notifications.consumer";
+import { AuthModule } from "@/modules/auth/auth.module";
 
+// EmailService is NOT provided here - it's global (see email.module.ts).
 @Module({
+  imports: [AuthModule],
   controllers: [WebhooksController],
-  providers: [EmailService, WebhooksService, NotificationsConsumer],
-  exports: [EmailService, WebhooksService],
+  providers: [WebhooksService, NotificationsConsumer],
+  exports: [WebhooksService],
 })
 export class NotificationsModule {}

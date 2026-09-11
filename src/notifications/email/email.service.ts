@@ -32,7 +32,14 @@ export class EmailService {
 
   async send({ to, subject, html }: SendEmailInput): Promise<void> {
     if (!this.resend) {
-      this.logger.log(`[email skipped, no RESEND_API_KEY] to=${to} subject="${subject}"`);
+      // Pull out any link(s) so a set-password/reset-password email is
+      // actually usable in local dev without a real Resend key - without
+      // this, there'd be no way to get the token out of the system at all.
+      const links = [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+      this.logger.log(
+        `[email skipped, no RESEND_API_KEY] to=${to} subject="${subject}"` +
+          (links.length ? ` link=${links[0]}` : ""),
+      );
       return;
     }
 

@@ -3,7 +3,8 @@ import { RabbitmqService } from "@/events/rabbitmq.service";
 import { PrismaService } from "@/prisma/prisma.service";
 import { EmailService } from "@/notifications/email/email.service";
 import { WebhooksService } from "@/notifications/webhooks/webhooks.service";
-import { submissionDecisionEmail, userInvitedEmail, reportReadyEmail } from "@/notifications/email/templates";
+import { AuthService } from "@/modules/auth/auth.service";
+import { submissionDecisionEmail, reportReadyEmail } from "@/notifications/email/templates";
 
 /**
  * Single subscriber for every notification-worthy domain event, fanning
@@ -20,6 +21,7 @@ export class NotificationsConsumer implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly webhooks: WebhooksService,
+    private readonly auth: AuthService,
   ) {}
 
   async onModuleInit() {
@@ -66,11 +68,11 @@ export class NotificationsConsumer implements OnModuleInit {
   }
 
   private async notifyUserInvited({ userId }: { userId: string; email: string }) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return;
-
-    const { subject, html } = userInvitedEmail({ fullName: user.fullName });
-    await this.email.send({ to: user.email, subject, html });
+    // Token generation happens HERE, not in the "user.invited" event
+    // payload above (which webhook subscribers also receive verbatim) -
+    // a raw set-password token must never travel through a channel meant
+    // for third-party fan-out. See AuthService.sendAccountInvitedEmail().
+    await this.auth.sendAccountInvitedEmail(userId);
   }
 
   private async notifyReportReady({ reportId }: { reportId: string }) {
