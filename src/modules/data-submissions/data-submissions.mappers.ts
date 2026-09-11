@@ -5,7 +5,9 @@ import type {
   KpiDefinition,
   Obligation,
   Pillar,
+  ReviewDecision,
   Submission,
+  SubmissionItem,
   User,
 } from "@prisma/client";
 import {
@@ -144,7 +146,7 @@ export function toSubmissionListItem(submission: SubmissionWithRelations) {
   };
 }
 
-function formatAgeLabel(date: Date): string {
+export function formatAgeLabel(date: Date): string {
   const days = Math.round((Date.now() - date.getTime()) / DAY_MS);
   if (days <= 0) return "Today";
   if (days === 1) return "1 day ago";
@@ -261,5 +263,91 @@ export function toUploadDefinition(obligation: ObligationWithDatasetFields) {
     acceptedFileTypes: ACCEPTED_FILE_TYPES,
     acceptedFileTypesLabel: ACCEPTED_FILE_TYPES_LABEL,
     maxFileSizeMb: MAX_FILE_SIZE_MB,
+  };
+}
+
+// Mirrors ReviewDecisionType in prisma/schema.prisma, same casing pattern
+// as submission-decision.ts's own decisionDisplay - kept as a plain
+// string map (not the Prisma enum) so any Prisma-typed value passed in
+// falls through predictably.
+export const DECISION_STATUS_CODE: Record<string, string> = {
+  APPROVE: "approved",
+  PROVISIONALLY_APPROVE: "provisional",
+  RETURN_FOR_CORRECTION: "returned",
+  REJECT: "rejected",
+};
+
+type SubmissionWithQueueRelations = SubmissionWithRelations & { reviewer: User | null };
+
+/**
+ * Matches validationQueueItemSchema exactly (submissionListItemSchema +
+ * reviewer/ageLabel/automatedCheck/issueCount). automatedCheck/issueCount
+ * are honestly always "pass"/0 for anything reachable here: uploadSubmission()
+ * rejects outright (400) on any validation failure rather than accepting
+ * with issues attached, so every PENDING submission already passed by
+ * construction - there's no partial/soft-issue state to report yet.
+ */
+export function toValidationQueueItem(submission: SubmissionWithQueueRelations) {
+  return {
+    ...toSubmissionListItem(submission),
+    reviewer: submission.reviewer?.fullName ?? "Unassigned",
+    ageLabel: formatAgeLabel(submission.createdAt),
+    automatedCheck: workflowStatus("pass"),
+    issueCount: 0,
+  };
+}
+
+type SubmissionWithDetailRelations = SubmissionWithQueueRelations & {
+  items: (SubmissionItem & { kpiDefinition: KpiDefinition })[];
+  reviewDecisions: (ReviewDecision & { reviewedBy: User })[];
+};
+
+/**
+ * Matches submissionDetailSchema exactly (validationQueueItemSchema +
+ * fileName/sourceReference/notes/issues/history/permittedDecisions/
+ * extractedValues). `history` is composed from data that already exists
+ * (the submission's own creation + its ReviewDecision rows) rather than a
+ * separate stored log, mirroring exactly what the mock's own
+ * createMockBackendSubmission()/synchronizeSubmissionDecision() build.
+ */
+export function toSubmissionDetail(submission: SubmissionWithDetailRelations) {
+  const createdEntry = {
+    id: `${submission.id}-created`,
+    status: workflowStatus(submission.method === "UPLOAD" ? "pending-review" : "draft"),
+    actor: submission.submittedBy.fullName,
+    occurredAt: submission.createdAt.toISOString(),
+    occurredAtLabel: formatAgeLabel(submission.createdAt),
+    comment:
+      submission.method === "UPLOAD" ? "Template uploaded and backend validation completed." : "Draft saved.",
+  };
+  const decisionEntries = submission.reviewDecisions
+    .slice()
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map((decision) => ({
+      id: decision.id,
+      status: workflowStatus(DECISION_STATUS_CODE[decision.decision] ?? "pending"),
+      actor: decision.reviewedBy.fullName,
+      occurredAt: decision.createdAt.toISOString(),
+      occurredAtLabel: formatAgeLabel(decision.createdAt),
+      comment: decision.comment,
+    }));
+
+  const extractedValues = submission.items.map((item) => ({
+    kpiId: item.kpiDefinitionId,
+    kpiName: item.kpiDefinition.name,
+    reportingPeriod: item.period,
+    value: Number(item.value),
+  }));
+
+  return {
+    ...toValidationQueueItem(submission),
+    fileName: submission.originalFileName,
+    sourceReference: submission.sourceReference ?? "",
+    notes: submission.notes ?? "",
+    issues: [] as unknown[],
+    history: [createdEntry, ...decisionEntries],
+    permittedDecisions:
+      submission.status === "PENDING" ? (["approved", "provisional", "returned", "rejected"] as const) : [],
+    extractedValues,
   };
 }

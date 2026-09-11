@@ -17,16 +17,18 @@ import { DataSubmissionsService } from "@/modules/data-submissions/data-submissi
 import { DataSubmissionsQueryDto } from "@/modules/data-submissions/dto/data-submissions-query.dto";
 import { ManualEntryDto } from "@/modules/data-submissions/dto/manual-entry.dto";
 import { UploadSubmissionDto } from "@/modules/data-submissions/dto/upload-submission.dto";
+import { RecordValidationDecisionDto } from "@/modules/data-submissions/dto/record-validation-decision.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { Roles } from "@/common/decorators/roles.decorator";
 
 const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024; // matches uploadDefinitionSchema's maxFileSizeMb
 
-// Phases 1 (read-only foundation) and 2 (manual-entry/upload creation,
-// template generation) of the Data Submissions rebuild. The validation
-// queue/detail and decision endpoints (Phase 3) land in this same
-// controller later - see m300-frontend's src/features/data-submissions/
-// api.ts for the complete real contract this is being built to match.
+// All 3 phases of the Data Submissions rebuild: the read-only foundation,
+// manual-entry/upload creation + template generation, and the validation
+// queue/detail/decision endpoints - see m300-frontend's
+// src/features/data-submissions/api.ts for the complete real contract
+// this was built to match.
 @ApiTags("data-submissions")
 @ApiBearerAuth()
 @Controller("data-submissions")
@@ -100,5 +102,29 @@ export class DataSubmissionsController {
       "Content-Disposition": `attachment; filename="${fileName}"`,
     });
     return new StreamableFile(buffer);
+  }
+
+  @Get("validation")
+  getValidationQueue(@CurrentUser() user: AuthenticatedUser, @Query() query: DataSubmissionsQueryDto) {
+    return this.dataSubmissions.getValidationQueue(user, query);
+  }
+
+  @Get("validation/:id")
+  getSubmissionDetail(@Param("id") id: string) {
+    return this.dataSubmissions.getSubmissionDetail(id);
+  }
+
+  // Same role gate as the old submissions module's decision endpoint
+  // (src/modules/submissions/submissions.controller.ts) - deliberately
+  // not including SYSTEM_ADMINISTRATOR, matching that existing precedent.
+  @Roles("DATA_REVIEWER", "VALIDATOR")
+  @Post("validation/:id/decisions")
+  @AuditAction("submission.decision_recorded")
+  recordDecision(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() dto: RecordValidationDecisionDto,
+  ) {
+    return this.dataSubmissions.recordDecision(user, id, dto);
   }
 }

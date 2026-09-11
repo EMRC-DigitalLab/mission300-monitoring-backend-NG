@@ -21,6 +21,11 @@ const STATUS_DEFS: Record<string, { label: string; tone: WorkflowTone }> = {
   approved: { label: "Approved", tone: "success" },
   overdue: { label: "Overdue", tone: "danger" },
   missing: { label: "Missing", tone: "warning" },
+  // Automated-check states (validationQueueItemSchema.automatedCheck),
+  // distinct from submission states above.
+  pass: { label: "Pass", tone: "success" },
+  fail: { label: "Fail", tone: "danger" },
+  pending: { label: "Pending", tone: "neutral" },
 };
 
 export function workflowStatus(code: string): WorkflowStatus {

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { ReviewDecisionType, SubmissionStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { StorageService } from "@/storage/storage.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
@@ -8,14 +9,17 @@ import { workflowStatus } from "@/modules/data-submissions/workflow-status";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { DataSubmissionsQueryDto } from "@/modules/data-submissions/dto/data-submissions-query.dto";
 import type { ManualEntryDto } from "@/modules/data-submissions/dto/manual-entry.dto";
+import type { RecordValidationDecisionDto } from "@/modules/data-submissions/dto/record-validation-decision.dto";
 import {
   toDataGap,
   toDatasetView,
   toManualEntryDefinition,
   toObligationView,
   toOverdueItem,
+  toSubmissionDetail,
   toSubmissionListItem,
   toUploadDefinition,
+  toValidationQueueItem,
 } from "@/modules/data-submissions/data-submissions.mappers";
 import {
   buildSubmissionItems,
@@ -36,11 +40,37 @@ const SUBMISSION_INCLUDE = {
   institution: true,
   submittedBy: true,
   obligation: { include: { dataset: true } },
+  reviewer: true,
+} as const;
+const SUBMISSION_DETAIL_INCLUDE = {
+  institution: true,
+  submittedBy: true,
+  obligation: { include: { dataset: true } },
+  reviewer: true,
+  items: { include: { kpiDefinition: true } },
+  reviewDecisions: { include: { reviewedBy: true } },
 } as const;
 const OBLIGATION_WITH_FIELDS_INCLUDE = {
   institution: true,
   dataset: { include: { fields: true } },
 } as const;
+
+// Maps the real contract's lower-kebab decision string to the internal
+// Prisma types - both the ReviewDecision row's own enum and the
+// Submission's resulting status.
+const DECISION_TO_REVIEW_TYPE: Record<string, ReviewDecisionType> = {
+  approved: "APPROVE",
+  provisional: "PROVISIONALLY_APPROVE",
+  returned: "RETURN_FOR_CORRECTION",
+  rejected: "REJECT",
+};
+const DECISION_TO_STATUS: Record<string, SubmissionStatus> = {
+  approved: "APPROVED",
+  provisional: "PROVISIONALLY_APPROVED",
+  returned: "RETURNED",
+  rejected: "REJECTED",
+};
+const VALUE_PUBLISHING_DECISIONS = new Set(["approved", "provisional"]);
 
 @Injectable()
 export class DataSubmissionsService {
@@ -51,10 +81,14 @@ export class DataSubmissionsService {
   ) {}
 
   async getFilters() {
-    const [institutions, datasets, obligationPeriods] = await Promise.all([
+    const [institutions, datasets, obligationPeriods, reviewerUsers] = await Promise.all([
       this.prisma.institution.findMany({ orderBy: { name: "asc" } }),
       this.prisma.dataset.findMany({ orderBy: { name: "asc" } }),
       this.prisma.obligation.findMany({ select: { reportingPeriod: true }, distinct: ["reportingPeriod"] }),
+      this.prisma.user.findMany({
+        where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+        orderBy: { fullName: "asc" },
+      }),
     ]);
     const reportingPeriods = [...new Set(obligationPeriods.map((o) => o.reportingPeriod))].sort();
 
@@ -91,10 +125,10 @@ export class DataSubmissionsService {
         { value: "fail", label: "Fail" },
         { value: "pending", label: "Pending" },
       ]),
-      // Reviewer assignment doesn't exist as its own concept yet (see
-      // data-submissions.service.ts's getSubmissions() comment) - empty
-      // until Phase 3 gives it a real backing source.
-      reviewers: withAll("reviewers", []),
+      reviewers: withAll(
+        "reviewers",
+        reviewerUsers.map((reviewer) => ({ value: reviewer.id, label: reviewer.fullName })),
+      ),
       readinessTiers: withAll("tiers", []),
       overdueStatuses: withAll("statuses", [
         { value: "overdue", label: "Overdue" },
@@ -301,6 +335,7 @@ export class DataSubmissionsService {
 
     const items = buildSubmissionItems(obligation.dataset.fields, values, obligation.reportingPeriod);
     const stored = await this.storage.save("submissions", file);
+    const reviewerId = await this.pickReviewer();
 
     const submission = await this.prisma.submission.create({
       data: {
@@ -312,6 +347,8 @@ export class DataSubmissionsService {
         sourceReference,
         notes: dto.notes ?? "",
         sourceFileUrl: stored.key,
+        originalFileName: stored.originalName,
+        reviewerId,
         items: { create: items },
       },
     });
@@ -339,6 +376,139 @@ export class DataSubmissionsService {
     });
     if (!dataset) throw new NotFoundException("Template not found.");
     return generateTemplateBuffer(dataset.fields);
+  }
+
+  async getValidationQueue(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
+    const pageSize = Math.min(100, query.pageSize ?? DEFAULT_PAGE_SIZE);
+    const search = query.search?.trim().toLowerCase() ?? "";
+
+    const submissions = await this.prisma.submission.findMany({
+      where: {
+        status: "PENDING",
+        ...scopeInstitutionFilter(user),
+        ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
+        ...(query.reviewer && query.reviewer !== "all" ? { reviewerId: query.reviewer } : {}),
+      },
+      include: SUBMISSION_INCLUDE,
+      orderBy: { createdAt: "asc" }, // oldest-waiting first
+    });
+
+    const views = submissions
+      .map(toValidationQueueItem)
+      .filter(
+        (view) =>
+          !search || [view.institution, view.dataset, view.reviewer].join(" ").toLowerCase().includes(search),
+      );
+
+    return paginate(views, query.page ?? 1, pageSize);
+  }
+
+  async getSubmissionDetail(id: string) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id },
+      include: SUBMISSION_DETAIL_INCLUDE,
+    });
+    if (!submission) throw new NotFoundException("Submission not found.");
+    return toSubmissionDetail(submission);
+  }
+
+  /**
+   * The one place a review decision is written AND, if it's an approval,
+   * the one place live KpiValues are derived from submitted data - both
+   * in a single transaction, same invariant the old submissions module
+   * already established. Also updates the obligation's
+   * acceptedSubmissionId (docs/API.md: "should also update the
+   * obligation's acceptedSubmissionId"), which the old module never had
+   * to do because it predates the Obligation concept entirely.
+   */
+  async recordDecision(user: AuthenticatedUser, id: string, dto: RecordValidationDecisionDto) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id },
+      include: { items: { include: { kpiDefinition: true } } },
+    });
+    if (!submission) throw new NotFoundException("Submission not found.");
+    if (submission.status !== "PENDING") {
+      throw new BadRequestException("This submission is not awaiting a decision.");
+    }
+
+    const reviewType = DECISION_TO_REVIEW_TYPE[dto.decision];
+    const targetStatus = DECISION_TO_STATUS[dto.decision];
+    const publishesValue = VALUE_PUBLISHING_DECISIONS.has(dto.decision);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reviewDecision.create({
+        data: { submissionId: id, reviewedById: user.id, decision: reviewType, comment: dto.comments },
+      });
+      await tx.submission.update({ where: { id }, data: { status: targetStatus } });
+
+      if (publishesValue) {
+        const approvedAt = new Date();
+        for (const item of submission.items) {
+          await tx.kpiValue.upsert({
+            where: { sourceSubmissionItemId: item.id },
+            create: {
+              kpiDefinitionId: item.kpiDefinitionId,
+              institutionId: submission.institutionId,
+              period: item.period,
+              value: item.value,
+              sourceSubmissionItemId: item.id,
+              approvedAt,
+            },
+            update: { value: item.value, approvedAt },
+          });
+        }
+        if (submission.obligationId) {
+          await tx.obligation.update({
+            where: { id: submission.obligationId },
+            data: { acceptedSubmissionId: id },
+          });
+        }
+      }
+    });
+
+    await this.rabbitmq.publish("submission.decision_recorded", {
+      submissionId: id,
+      decision: reviewType,
+      institutionId: submission.institutionId,
+    });
+
+    const published = publishesValue
+      ? submission.items.map((item) => ({
+          kpiId: item.kpiDefinitionId,
+          kpiName: item.kpiDefinition.name,
+          reportingPeriod: item.period,
+          value: Number(item.value),
+        }))
+      : [];
+    const status = workflowStatus(dto.decision);
+    const message = published.length
+      ? `Decision recorded: ${status.label}. Published to ${published.map((p) => p.kpiName).join(", ")}.`
+      : `Decision recorded: ${status.label}.`;
+
+    return {
+      submissionId: id,
+      status,
+      message,
+      nextUrl: "/data-submissions/validation",
+      published,
+    };
+  }
+
+  /**
+   * Simple round-robin by current PENDING load - there's no explicit
+   * "assign a reviewer" action anywhere in the real contract, so this
+   * picks one at upload time rather than leaving every submission
+   * unassigned. Returns null if no reviewer-capable account exists yet
+   * (a fresh system before anyone with that role has been invited).
+   */
+  private async pickReviewer(): Promise<string | null> {
+    const reviewers = await this.prisma.user.findMany({
+      where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+      include: { _count: { select: { reviewingSubmissions: { where: { status: "PENDING" } } } } },
+    });
+    if (reviewers.length === 0) return null;
+    reviewers.sort((a, b) => a._count.reviewingSubmissions - b._count.reviewingSubmissions);
+    return reviewers[0].id;
   }
 
   private async findObligationWithFields(obligationId: string) {
