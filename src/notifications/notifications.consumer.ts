@@ -4,7 +4,13 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { EmailService } from "@/notifications/email/email.service";
 import { WebhooksService } from "@/notifications/webhooks/webhooks.service";
 import { AuthService } from "@/modules/auth/auth.service";
-import { submissionDecisionEmail, reportReadyEmail, type EmailBrand } from "@/notifications/email/templates";
+import {
+  submissionDecisionEmail,
+  submissionReceivedEmail,
+  submissionAwaitingReviewEmail,
+  reportReadyEmail,
+  type EmailBrand,
+} from "@/notifications/email/templates";
 import { BrandingService } from "@/modules/administration/branding/branding.service";
 
 /**
@@ -39,7 +45,7 @@ export class NotificationsConsumer implements OnModuleInit {
   async onModuleInit() {
     await this.rabbitmq.subscribe(
       "notifications.dispatch",
-      ["submission.decision_recorded", "user.invited", "report.ready"],
+      ["submission.decision_recorded", "submission.uploaded", "user.invited", "report.ready"],
       (payload, event) => this.handle(event, payload),
     );
   }
@@ -52,6 +58,8 @@ export class NotificationsConsumer implements OnModuleInit {
     switch (event) {
       case "submission.decision_recorded":
         return this.notifySubmissionDecision(payload as { submissionId: string });
+      case "submission.uploaded":
+        return this.notifySubmissionUploaded(payload as { submissionId: string });
       case "user.invited":
         return this.notifyUserInvited(payload as { userId: string; email: string });
       case "report.ready":
@@ -80,6 +88,62 @@ export class NotificationsConsumer implements OnModuleInit {
       await this.getEmailBrand(),
     );
     await this.email.send({ to: submission.submittedBy.email, subject, html });
+  }
+
+  /**
+   * Two audiences, both from one event: a confirmation to whoever
+   * submitted, and a heads-up to every DATA_REVIEWER/VALIDATOR - there's
+   * no per-submission reviewer assignment yet (that's Phase 3 of the Data
+   * Submissions rebuild), so the whole reviewer pool hears about it
+   * rather than nobody at all.
+   */
+  private async notifySubmissionUploaded({ submissionId }: { submissionId: string }) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      include: {
+        institution: true,
+        submittedBy: true,
+        obligation: { include: { dataset: true } },
+      },
+    });
+    if (!submission || !submission.obligation) return;
+
+    const brand = await this.getEmailBrand();
+    const frontendUrl = process.env.FRONTEND_URL;
+
+    const received = submissionReceivedEmail(
+      {
+        institutionName: submission.institution.name,
+        datasetName: submission.obligation.dataset.name,
+        reportingPeriod: submission.obligation.reportingPeriod,
+        submissionsUrl: `${frontendUrl}/data-submissions/submissions`,
+      },
+      brand,
+    );
+    await this.email.send({
+      to: submission.submittedBy.email,
+      subject: received.subject,
+      html: received.html,
+    });
+
+    const reviewers = await this.prisma.user.findMany({
+      where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+    });
+    const awaitingReview = submissionAwaitingReviewEmail(
+      {
+        institutionName: submission.institution.name,
+        datasetName: submission.obligation.dataset.name,
+        reportingPeriod: submission.obligation.reportingPeriod,
+        submittedByName: submission.submittedBy.fullName,
+        validationUrl: `${frontendUrl}/data-submissions/validation/${submission.id}`,
+      },
+      brand,
+    );
+    await Promise.all(
+      reviewers.map((reviewer) =>
+        this.email.send({ to: reviewer.email, subject: awaitingReview.subject, html: awaitingReview.html }),
+      ),
+    );
   }
 
   private async notifyUserInvited({ userId }: { userId: string; email: string }) {

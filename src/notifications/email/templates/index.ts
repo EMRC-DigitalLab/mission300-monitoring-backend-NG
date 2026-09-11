@@ -4,5 +4,7 @@
 export { accountInvitedEmail } from "@/notifications/email/templates/account-invited";
 export { passwordResetEmail } from "@/notifications/email/templates/password-reset";
 export { submissionDecisionEmail } from "@/notifications/email/templates/submission-decision";
+export { submissionReceivedEmail } from "@/notifications/email/templates/submission-received";
+export { submissionAwaitingReviewEmail } from "@/notifications/email/templates/submission-awaiting-review";
 export { reportReadyEmail } from "@/notifications/email/templates/report-ready";
 export type { EmailTemplate, EmailBrand } from "@/notifications/email/templates/layout";

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
 import { StorageService } from "@/storage/storage.service";
+import { RabbitmqService } from "@/events/rabbitmq.service";
 import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { workflowStatus } from "@/modules/data-submissions/workflow-status";
@@ -46,6 +47,7 @@ export class DataSubmissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly rabbitmq: RabbitmqService,
   ) {}
 
   async getFilters() {
@@ -313,6 +315,13 @@ export class DataSubmissionsService {
         items: { create: items },
       },
     });
+
+    // Notifies both the submitter (confirmation) and the reviewer pool -
+    // see NotificationsConsumer.notifySubmissionUploaded(). Manual-entry
+    // saves don't publish anything: a DRAFT isn't submitted for review
+    // yet (see saveManualEntry()'s comment), so there's nothing to notify
+    // anyone about.
+    await this.rabbitmq.publish("submission.uploaded", { submissionId: submission.id });
 
     return {
       submissionId: submission.id,
