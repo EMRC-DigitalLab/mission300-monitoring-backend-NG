@@ -5,11 +5,16 @@ import { toKebabCase } from "@/common/utils/enum-casing";
 import {
   formatPercent,
   ratio,
+  toDeliveryRow,
   toDiscoComparisonRowBase,
+  toUtilityOperationsRow,
   toValidationLabel,
 } from "@/modules/state-disco/state-disco.mappers";
 import type { StateDiscoQueryDto } from "@/modules/state-disco/dto/state-disco-query.dto";
 import type { UpsertDiscoPerformanceDto } from "@/modules/state-disco/dto/upsert-disco-performance.dto";
+import type { UpsertDiscoServiceBandDto } from "@/modules/state-disco/dto/upsert-disco-service-band.dto";
+import type { CreateDiscoDeliveryMilestoneDto } from "@/modules/state-disco/dto/create-disco-delivery-milestone.dto";
+import type { UpdateDiscoDeliveryMilestoneDto } from "@/modules/state-disco/dto/update-disco-delivery-milestone.dto";
 
 const PROVENANCE_NOW = () => new Date().toISOString();
 
@@ -424,6 +429,148 @@ export class StateDiscoService {
     return {
       record: toDiscoComparisonRowBase(record),
       message: `${record.institution.name}'s ${dto.period} performance record has been saved.`,
+    };
+  }
+
+  async getSupplyTariff(query: StateDiscoQueryDto) {
+    const selection = query.distributionCompany ?? "national";
+    const bands = await this.prisma.discoServiceBand.findMany({
+      where: selection === "national" ? {} : { institutionId: selection },
+      include: { institution: true },
+    });
+
+    const byInstitution = new Map<string, typeof bands>();
+    for (const band of bands) {
+      const list = byInstitution.get(band.institutionId) ?? [];
+      list.push(band);
+      byInstitution.set(band.institutionId, list);
+    }
+
+    // A DisCo only appears here once all 5 bands are entered - the schema
+    // requires exactly 5, and padding or inventing a missing band would
+    // put a number on the page no one actually reported.
+    const rows = [...byInstitution.entries()]
+      .filter(([, list]) => list.length === 5)
+      .map(([institutionId, list]) => toUtilityOperationsRow(institutionId, list));
+
+    return {
+      meta: {
+        title: "Supply hours and approved tariffs",
+        description: "Service bands remain separate; no unweighted tariff average is presented.",
+        lastUpdatedLabel: "Just now",
+        sourceLabel: "Nigerian Electricity Regulatory Commission tariff orders",
+      },
+      rows,
+    };
+  }
+
+  async getDelivery(query: StateDiscoQueryDto) {
+    const selection = query.distributionCompany ?? "national";
+    const serviceBandFilter = query.serviceBand ?? "all";
+    const validationFilter = query.validationStatus ?? "all";
+
+    const milestones = await this.prisma.discoDeliveryMilestone.findMany({
+      where: {
+        ...(selection === "national" ? {} : { institutionId: selection }),
+        ...(serviceBandFilter === "all" ? {} : { serviceBand: serviceBandFilter as never }),
+      },
+      include: { institution: true },
+      orderBy: { dueDate: "asc" },
+    });
+
+    const filtered =
+      validationFilter === "all"
+        ? milestones
+        : milestones.filter((m) => toKebabCase(m.validationStatus) === validationFilter);
+
+    return {
+      meta: {
+        title: "Utility delivery and reporting compliance",
+        description: "Performance Improvement Plan milestones linked to evidence and open bottlenecks.",
+        lastUpdatedLabel: "Just now",
+        sourceLabel: "Nigerian Electricity Regulatory Commission Performance Improvement Plan monitoring",
+      },
+      rows: filtered.map(toDeliveryRow),
+    };
+  }
+
+  async upsertServiceBand(institutionId: string, dto: UpsertDiscoServiceBandDto) {
+    const institution = await this.prisma.institution.findUnique({ where: { id: institutionId } });
+    if (!institution) throw new NotFoundException("Institution not found.");
+    if (institution.type !== "Disco") {
+      throw new NotFoundException("This institution is not registered as a Distribution Company.");
+    }
+
+    const band = await this.prisma.discoServiceBand.upsert({
+      where: { institutionId_band: { institutionId, band: dto.band } },
+      create: {
+        institutionId,
+        band: dto.band,
+        effectiveOrder: dto.effectiveOrder,
+        supplyHoursPerDay: dto.supplyHoursPerDay,
+        tariffNgnPerKwh: dto.tariffNgnPerKwh,
+        intensityPercent: dto.intensityPercent,
+      },
+      update: {
+        effectiveOrder: dto.effectiveOrder,
+        supplyHoursPerDay: dto.supplyHoursPerDay,
+        tariffNgnPerKwh: dto.tariffNgnPerKwh,
+        intensityPercent: dto.intensityPercent,
+      },
+      include: { institution: true },
+    });
+
+    return {
+      message: `${band.institution.name}'s Band ${band.band} supply/tariff data has been saved.`,
+    };
+  }
+
+  async createDeliveryMilestone(institutionId: string, dto: CreateDiscoDeliveryMilestoneDto) {
+    const institution = await this.prisma.institution.findUnique({ where: { id: institutionId } });
+    if (!institution) throw new NotFoundException("Institution not found.");
+    if (institution.type !== "Disco") {
+      throw new NotFoundException("This institution is not registered as a Distribution Company.");
+    }
+
+    const milestone = await this.prisma.discoDeliveryMilestone.create({
+      data: {
+        institutionId,
+        milestone: dto.milestone,
+        serviceBand: dto.serviceBand,
+        dueDate: new Date(dto.dueDate),
+        executionStatus: dto.executionStatus ?? "ON_TRACK",
+        evidenceUrl: dto.evidenceUrl ?? null,
+        reportingCompliance: dto.reportingCompliance ?? "",
+        bottleneck: dto.bottleneck ?? "",
+      },
+      include: { institution: true },
+    });
+
+    return {
+      record: toDeliveryRow(milestone),
+      message: `${milestone.milestone} has been added to ${institution.name}'s delivery plan.`,
+    };
+  }
+
+  async updateDeliveryMilestone(milestoneId: string, dto: UpdateDiscoDeliveryMilestoneDto) {
+    const existing = await this.prisma.discoDeliveryMilestone.findUnique({ where: { id: milestoneId } });
+    if (!existing) throw new NotFoundException("Delivery milestone not found.");
+
+    const milestone = await this.prisma.discoDeliveryMilestone.update({
+      where: { id: milestoneId },
+      data: {
+        executionStatus: dto.executionStatus ?? existing.executionStatus,
+        achievedDate: dto.achievedDate !== undefined ? new Date(dto.achievedDate) : existing.achievedDate,
+        evidenceUrl: dto.evidenceUrl !== undefined ? dto.evidenceUrl : existing.evidenceUrl,
+        reportingCompliance: dto.reportingCompliance ?? existing.reportingCompliance,
+        bottleneck: dto.bottleneck ?? existing.bottleneck,
+      },
+      include: { institution: true },
+    });
+
+    return {
+      record: toDeliveryRow(milestone),
+      message: `${milestone.milestone} has been updated.`,
     };
   }
 }

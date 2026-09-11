@@ -782,6 +782,71 @@ async function main() {
     update: {},
   });
 
+  // State/DisCo Phase B: 5 real service bands for Ikeja Electric only (a
+  // DisCo is only ever included in GET .../supply-tariff once all 5 exist -
+  // see state-disco.mappers.ts's toUtilityOperationsRow comment), plus a
+  // couple of delivery milestones exercising both an on-track and an
+  // achieved-with-evidence state.
+  const IKEJA_BANDS: {
+    band: "A" | "B" | "C" | "D" | "E";
+    supplyHoursPerDay: number;
+    tariffNgnPerKwh: number;
+    intensityPercent: number;
+  }[] = [
+    { band: "A", supplyHoursPerDay: 20, tariffNgnPerKwh: 209.5, intensityPercent: 8 },
+    { band: "B", supplyHoursPerDay: 16, tariffNgnPerKwh: 174.3, intensityPercent: 22 },
+    { band: "C", supplyHoursPerDay: 12, tariffNgnPerKwh: 155.9, intensityPercent: 35 },
+    { band: "D", supplyHoursPerDay: 8, tariffNgnPerKwh: 138.2, intensityPercent: 25 },
+    { band: "E", supplyHoursPerDay: 4, tariffNgnPerKwh: 120.6, intensityPercent: 10 },
+  ];
+  for (const b of IKEJA_BANDS) {
+    await prisma.discoServiceBand.upsert({
+      where: { institutionId_band: { institutionId: ikeja.id, band: b.band } },
+      create: {
+        institutionId: ikeja.id,
+        band: b.band,
+        effectiveOrder: "MYTO 2024 Minor Review",
+        supplyHoursPerDay: b.supplyHoursPerDay,
+        tariffNgnPerKwh: b.tariffNgnPerKwh,
+        intensityPercent: b.intensityPercent,
+      },
+      update: {},
+    });
+  }
+
+  await prisma.discoDeliveryMilestone.upsert({
+    where: { id: "seed-disco-milestone-ikeja-meter-rollout" },
+    create: {
+      id: "seed-disco-milestone-ikeja-meter-rollout",
+      institutionId: ikeja.id,
+      milestone: "Complete Phase 2 meter asset provider rollout in Band A/B franchise areas",
+      serviceBand: "A",
+      dueDate: new Date("2025-12-31T00:00:00Z"),
+      executionStatus: "ON_TRACK",
+      reportingCompliance: "3 of 4 quarterly submissions received on time",
+      bottleneck: "",
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+  await prisma.discoDeliveryMilestone.upsert({
+    where: { id: "seed-disco-milestone-ikeja-band-c-upgrade" },
+    create: {
+      id: "seed-disco-milestone-ikeja-band-c-upgrade",
+      institutionId: ikeja.id,
+      milestone: "Commission Band C feeder upgrade, Q3 2025",
+      serviceBand: "C",
+      dueDate: new Date("2025-09-30T00:00:00Z"),
+      achievedDate: new Date("2025-09-25T00:00:00Z"),
+      executionStatus: "COMPLETED",
+      evidenceUrl: "https://files.example.gov.ng/ikeja/band-c-feeder-upgrade-commissioning.pdf",
+      reportingCompliance: "4 of 4 quarterly submissions received on time",
+      bottleneck: "",
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
   // One example Dataset/DatasetField/Obligation so the Data Submissions
   // module's read endpoints (GET .../datasets, .../obligations) have
   // something real to return - the manual-entry form definition is built

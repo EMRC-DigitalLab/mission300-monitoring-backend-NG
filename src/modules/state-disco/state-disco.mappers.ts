@@ -1,4 +1,10 @@
-import type { DiscoPerformanceRecord, Institution } from "@prisma/client";
+import type {
+  DiscoDeliveryMilestone,
+  DiscoPerformanceRecord,
+  DiscoServiceBand,
+  Institution,
+} from "@prisma/client";
+import { toKebabCase } from "@/common/utils/enum-casing";
 
 /**
  * State/DisCo is NOT a read-composition layer like Executive Overview or
@@ -85,5 +91,63 @@ export function toDiscoComparisonRowBase(record: RecordWithInstitution) {
     collectionEfficiency: formatPercent(collectionEfficiency),
     remittancePerformance: formatPercent(remittancePerformance),
     validationLabel: toValidationLabel(record.validationStatus),
+  };
+}
+
+const BAND_ORDER = ["A", "B", "C", "D", "E"] as const;
+
+export function formatSupplyHours(hoursPerDay: number): string {
+  return `${decimalFormatter.format(hoursPerDay)} hrs/day`;
+}
+
+export function formatTariff(ngnPerKwh: number): string {
+  return `NGN ${ngnPerKwh.toFixed(2)}/kWh`;
+}
+
+function formatDateLabel(date: Date): string {
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+type ServiceBandWithInstitution = DiscoServiceBand & { institution: Institution };
+
+/**
+ * Matches utilityOperationsRowSchema exactly - one row per DisCo, its 5
+ * service bands ordered A-E. Only ever built from a set of exactly 5 real
+ * DiscoServiceBand rows for the same institution (see the service, which
+ * skips a DisCo entirely from this endpoint's response rather than
+ * padding/inventing a missing band to satisfy the schema's `.length(5)`).
+ */
+export function toUtilityOperationsRow(institutionId: string, bands: ServiceBandWithInstitution[]) {
+  const sorted = [...bands].sort((a, b) => BAND_ORDER.indexOf(a.band) - BAND_ORDER.indexOf(b.band));
+  return {
+    id: institutionId,
+    utility: sorted[0].institution.name,
+    effectiveOrder: sorted[0].effectiveOrder,
+    bands: sorted.map((b) => ({
+      band: b.band,
+      supplyHours: formatSupplyHours(toNumber(b.supplyHoursPerDay)),
+      tariff: formatTariff(toNumber(b.tariffNgnPerKwh)),
+      intensityPercent: toNumber(b.intensityPercent),
+    })),
+  };
+}
+
+type MilestoneWithInstitution = DiscoDeliveryMilestone & { institution: Institution };
+
+/** Matches deliveryRowSchema exactly. */
+export function toDeliveryRow(m: MilestoneWithInstitution) {
+  return {
+    id: m.id,
+    utility: m.institution.name,
+    milestone: m.milestone,
+    serviceBand: m.serviceBand,
+    validationLabel: toValidationLabel(m.validationStatus),
+    dueDate: m.dueDate.toISOString(),
+    dueDateLabel: formatDateLabel(m.dueDate),
+    executionStatus: toKebabCase(m.executionStatus),
+    achievedLabel: m.achievedDate ? formatDateLabel(m.achievedDate) : "Not yet achieved",
+    evidenceLabel: m.evidenceUrl ? "Evidence attached" : "No evidence yet",
+    reportingCompliance: m.reportingCompliance || "Not yet assessed",
+    bottleneck: m.bottleneck,
   };
 }
