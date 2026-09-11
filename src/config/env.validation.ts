@@ -39,8 +39,12 @@ export const envSchema = z.object({
   // is created from these two values (see bootstrap-admin.service.ts) so an
   // invite-only system has someone able to invite anyone else. Optional -
   // without them, an empty DB just stays empty until seeded another way.
-  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
-  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).optional(),
+  // `.or(z.literal(""))` matters: an env file with the key present but no
+  // value (e.g. `BOOTSTRAP_ADMIN_EMAIL=`) sets process.env to "", not
+  // undefined - plain `.optional()` rejects that "", so a blank-but-present
+  // line would crash startup instead of being treated as "not set".
+  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).optional().or(z.literal("")),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { AccountStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
@@ -20,6 +20,29 @@ export class UsersService {
   }
 
   async invite(dto: InviteUserDto) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+
+    // Same endpoint doubles as "resend invite" - the frontend has no
+    // separate resend action, it just calls invite again. A PENDING account
+    // was never activated, so there's nothing destructive about re-issuing
+    // it: refresh the details in case the admin corrected them, and send a
+    // fresh set-password link (old one, if any, stays invalid - it's a
+    // separate PasswordResetToken row and only the latest one matters).
+    if (existing) {
+      if (existing.status !== AccountStatus.PENDING) {
+        throw new ConflictException("A user with this email already exists.");
+      }
+
+      const user = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { fullName: dto.fullName, role: dto.role, institutionId: dto.institutionId },
+      });
+
+      await this.rabbitmq.publish("user.invited", { userId: user.id, email: user.email });
+
+      return { id: user.id, email: user.email, fullName: user.fullName, role: user.role };
+    }
+
     // Starts PENDING (schema default) with a random, unusable password -
     // they can't log in until the set-password link (sent via the
     // "user.invited" consumer, see NotificationsConsumer) is redeemed.

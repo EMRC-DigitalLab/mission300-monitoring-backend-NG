@@ -117,8 +117,11 @@ export function renderLayout(title: string, bodyHtml: string, preheader?: string
             </tr>
             <tr>
               <td style="background-color: ${token.surfaceSunken}; border-top: 1px solid ${token.borderDefault}; padding: 20px 32px;">
-                <p style="margin: 0; font-family: ${fontFamily}; font-size: 12px; line-height: 1.5; color: ${token.textMuted};">
+                <p style="margin: 0 0 6px; font-family: ${fontFamily}; font-size: 12px; line-height: 1.5; color: ${token.textMuted};">
                   M300 Nigeria Energy Compact Dashboard — automated notification, please do not reply.
+                </p>
+                <p style="margin: 0; font-family: ${fontFamily}; font-size: 11px; line-height: 1.5; color: ${token.textMuted};">
+                  Delivery partners: SEforALL, GEAPP · Platform built by EMRC
                 </p>
               </td>
             </tr>

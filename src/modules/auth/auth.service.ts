@@ -107,16 +107,27 @@ export class AuthService {
    * storing only its hash - a stolen DB row can't be replayed as a working
    * link, same principle as password hashing. Used by both forgotPassword()
    * above and the invite flow (see NotificationsConsumer).
+   *
+   * Invalidates any earlier unused token for this user first - without
+   * this, a re-invite (or a second forgot-password request) leaves the
+   * OLD link live for its full TTL alongside the new one, so a stale link
+   * from before an admin "revoked" it by re-inviting would still work.
    */
   async createPasswordResetToken(userId: string, ttlMs: number): Promise<string> {
     const token = randomBytes(32).toString("hex");
-    await this.prisma.passwordResetToken.create({
-      data: {
-        userId,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + ttlMs),
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.create({
+        data: {
+          userId,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + ttlMs),
+        },
+      }),
+    ]);
     return token;
   }
 
