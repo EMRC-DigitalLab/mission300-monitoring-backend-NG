@@ -9,6 +9,7 @@ import {
   toProgrammeRecord,
   toProjectRecord,
 } from "@/modules/programs/programs.mappers";
+import { loadBottleneckIdsByLinkedRecord } from "@/modules/bottlenecks/bottlenecks.mappers";
 import type { ProgramsQueryDto } from "@/modules/programs/dto/programs-query.dto";
 import type { ProjectsQueryDto } from "@/modules/programs/dto/projects-query.dto";
 import type { CreateProgrammeDto } from "@/modules/programs/dto/create-programme.dto";
@@ -26,9 +27,8 @@ const PROJECT_INCLUDE = {
 } as const;
 const MILESTONE_INCLUDE = { project: true } as const;
 
-// Bottlenecks are Phase B of this rebuild (a separate Prisma model not yet
-// added) - every `bottlenecks[]` field is honestly empty until then, not
-// invented. See the schema comment on Programme/Project.bottleneckCategory.
+// A record that was just created cannot have any bottlenecks linked to it
+// yet - [] directly, no need to query.
 const NO_BOTTLENECKS: string[] = [];
 
 const CURRENT_PERIOD_LABEL = () => {
@@ -124,17 +124,26 @@ export class ProgramsService {
     const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
     const { items, ...pageMeta } = paginate(filtered, page, pageSize);
 
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(
+      this.prisma,
+      items.map((p) => p.id),
+    );
+
     return {
       lastUpdated: new Date().toISOString(),
       headlineCards,
-      programmes: { items: items.map((p) => toProgrammeRecord(p, NO_BOTTLENECKS)), ...pageMeta },
+      programmes: {
+        items: items.map((p) => toProgrammeRecord(p, bottleneckIds.get(p.id) ?? [])),
+        ...pageMeta,
+      },
     };
   }
 
   async getProgramme(id: string) {
     const programme = await this.prisma.programme.findUnique({ where: { id }, include: PROGRAMME_INCLUDE });
     if (!programme) throw new NotFoundException("The programme was not found.");
-    return toProgrammeRecord(programme, NO_BOTTLENECKS);
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [id]);
+    return toProgrammeRecord(programme, bottleneckIds.get(id) ?? []);
   }
 
   async getProjectsForProgramme(programmeId: string, query: ProjectsQueryDto) {
@@ -156,7 +165,11 @@ export class ProgramsService {
       return matchesSearch && (status === "all" || toKebabCase(p.currentStatus) === status);
     });
 
-    return filtered.map((p) => toProjectRecord(p, NO_BOTTLENECKS));
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(
+      this.prisma,
+      filtered.map((p) => p.id),
+    );
+    return filtered.map((p) => toProjectRecord(p, bottleneckIds.get(p.id) ?? []));
   }
 
   async getProject(projectId: string) {
@@ -165,7 +178,8 @@ export class ProgramsService {
       include: PROJECT_INCLUDE,
     });
     if (!project) throw new NotFoundException("The project was not found.");
-    return toProjectRecord(project, NO_BOTTLENECKS);
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [projectId]);
+    return toProjectRecord(project, bottleneckIds.get(projectId) ?? []);
   }
 
   async getMilestonesForProject(projectId: string) {
@@ -289,8 +303,9 @@ export class ProgramsService {
       include: PROJECT_INCLUDE,
     });
 
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [projectId]);
     return {
-      record: toProjectRecord(project, NO_BOTTLENECKS),
+      record: toProjectRecord(project, bottleneckIds.get(projectId) ?? []),
       message: `${project.id} has been updated.`,
     };
   }

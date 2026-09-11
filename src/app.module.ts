@@ -17,6 +17,7 @@ import { InstitutionsModule } from "@/modules/institutions/institutions.module";
 import { SubmissionsModule } from "@/modules/submissions/submissions.module";
 import { KpisModule } from "@/modules/kpis/kpis.module";
 import { ProgramsModule } from "@/modules/programs/programs.module";
+import { BottlenecksModule } from "@/modules/bottlenecks/bottlenecks.module";
 import { ReportsModule } from "@/modules/reports/reports.module";
 import { StakeholdersModule } from "@/modules/stakeholders/stakeholders.module";
 import { AdministrationModule } from "@/modules/administration/administration.module";
@@ -56,7 +57,7 @@ import { KpiExplorerModule } from "@/modules/kpi-explorer/kpi-explorer.module";
     SubmissionsModule,
     KpisModule,
     ProgramsModule,
-    // BottlenecksModule - Phase B of the Programs/Bottlenecks rebuild, not yet added.
+    BottlenecksModule,
     ReportsModule,
     StakeholdersModule,
     AdministrationModule,

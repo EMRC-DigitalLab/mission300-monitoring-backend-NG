@@ -460,6 +460,166 @@ async function main() {
     update: {},
   });
 
+  // Bottlenecks & Exceptions Phase B: enough real-shaped Bottleneck/
+  // Escalation rows to exercise every headline-alert rule in
+  // bottlenecks.service.ts's getOverview() (open-high-or-critical,
+  // delayed via IN_PROGRESS, blocked, a resolved one correctly excluded
+  // from "open", and an overdue vs. not-yet-due escalation). One
+  // bottleneck's linkedRecord is set to a real seeded project id and
+  // another to a real seeded programme id, proving the linkedRecord ->
+  // Programme/Project.bottlenecks[] derivation actually works live.
+  const financiallyViableUtilities = pillarsBySlug.get("financially-viable-utilities")!;
+
+  const lineUpgradeBottleneck = await prisma.bottleneck.upsert({
+    where: { id: "seed-bottleneck-transmission-evacuation" },
+    create: {
+      id: "seed-bottleneck-transmission-evacuation",
+      issue: "Transmission evacuation constraint limiting dispatch, North East",
+      category: "TECHNICAL_CONSTRAINT",
+      severity: "CRITICAL",
+      pillarId: generationNetwork.id,
+      linkedRecord: lineUpgradeProject.id,
+      institution: "Transmission Company of Nigeria",
+      dateRaised: new Date("2025-09-25T00:00:00Z"),
+      followUp: "Line upgrade contractor mobilised; interim load-shedding protocol in place.",
+      escalationStatus: "ESCALATED",
+      status: "ESCALATED",
+      lifecycleStage: "IMPLEMENTATION",
+      statusHistory: {
+        create: [
+          { period: "Sep 2025", status: "OPEN" },
+          { period: "Sep 2025", status: "ESCALATED" },
+        ],
+      },
+    },
+    update: {},
+  });
+
+  await prisma.bottleneck.upsert({
+    where: { id: "seed-bottleneck-minigrid-financing" },
+    create: {
+      id: "seed-bottleneck-minigrid-financing",
+      issue: "Co-investor first-loss guarantee approval outstanding",
+      category: "FINANCING",
+      severity: "MEDIUM",
+      pillarId: lastMileAccess.id,
+      linkedRecord: miniGridProgramme.id,
+      institution: "Rural Electrification Agency",
+      dateRaised: new Date("2025-09-20T00:00:00Z"),
+      followUp: "Awaiting guarantee approval to reach financial close.",
+      escalationStatus: "NOT_ESCALATED",
+      status: "OPEN",
+      lifecycleStage: "DESIGN",
+      statusHistory: { create: [{ period: "Sep 2025", status: "OPEN" }] },
+    },
+    update: {},
+  });
+
+  await prisma.bottleneck.upsert({
+    where: { id: "seed-bottleneck-bilateral-contracts" },
+    create: {
+      id: "seed-bottleneck-bilateral-contracts",
+      issue: "Bilateral contracts on hold pending regulatory determination",
+      category: "REGULATORY_APPROVAL",
+      severity: "HIGH",
+      pillarId: financiallyViableUtilities.id,
+      linkedRecord: "",
+      institution: "NERC",
+      dateRaised: new Date("2025-08-01T00:00:00Z"),
+      followUp: "Awaiting NERC board determination, next sitting Q4 2025.",
+      escalationStatus: "NOT_ESCALATED",
+      status: "IN_PROGRESS",
+      lifecycleStage: "DESIGN",
+      statusHistory: {
+        create: [
+          { period: "Aug 2025", status: "OPEN" },
+          { period: "Sep 2025", status: "IN_PROGRESS" },
+        ],
+      },
+    },
+    update: {},
+  });
+
+  await prisma.bottleneck.upsert({
+    where: { id: "seed-bottleneck-feeder-procurement" },
+    create: {
+      id: "seed-bottleneck-feeder-procurement",
+      issue: "Procurement for feeder rehabilitation lots re-advertised",
+      category: "PROCUREMENT",
+      severity: "LOW",
+      pillarId: generationNetwork.id,
+      linkedRecord: "",
+      institution: "Transmission Company of Nigeria",
+      dateRaised: new Date("2025-09-30T00:00:00Z"),
+      followUp: "Technical evaluation committee reconvenes next week.",
+      escalationStatus: "NOT_ESCALATED",
+      status: "BLOCKED",
+      lifecycleStage: "PROCUREMENT",
+      statusHistory: { create: [{ period: "Sep 2025", status: "OPEN" }, { period: "Oct 2025", status: "BLOCKED" }] },
+    },
+    update: {},
+  });
+
+  // Resolved - must NOT appear in any "open" aggregate (byCategory/
+  // byLifecycleStage/byInstitution/open-high-or-critical alert).
+  await prisma.bottleneck.upsert({
+    where: { id: "seed-bottleneck-permit-resolved" },
+    create: {
+      id: "seed-bottleneck-permit-resolved",
+      issue: "Environmental permit renewal overdue for mini-grid cluster",
+      category: "PERMITTING",
+      severity: "MEDIUM",
+      pillarId: lastMileAccess.id,
+      linkedRecord: "",
+      institution: "Rural Electrification Agency",
+      dateRaised: new Date("2025-07-22T00:00:00Z"),
+      followUp: "Permit resubmitted after clarifying site boundary; awaiting response.",
+      escalationStatus: "RESOLVED",
+      status: "RESOLVED",
+      lifecycleStage: "COMMISSIONING",
+      statusHistory: {
+        create: [
+          { period: "Jul 2025", status: "OPEN" },
+          { period: "Sep 2025", status: "IN_PROGRESS" },
+          { period: "Oct 2025", status: "RESOLVED" },
+        ],
+      },
+    },
+    update: {},
+  });
+
+  await prisma.escalation.upsert({
+    where: { id: "seed-escalation-transmission-budget-overdue" },
+    create: {
+      id: "seed-escalation-transmission-budget-overdue",
+      bottleneckId: lineUpgradeBottleneck.id,
+      decisionRequired: "Authorise emergency transmission line upgrade budget",
+      level: "STEERING_COMMITTEE",
+      owner: "Transmission Company of Nigeria",
+      dueDate: new Date("2025-08-01T00:00:00Z"),
+      status: "OVERDUE",
+      resolution: null,
+      evidenceUrl: null,
+    },
+    update: {},
+  });
+
+  await prisma.escalation.upsert({
+    where: { id: "seed-escalation-transmission-followup-pending" },
+    create: {
+      id: "seed-escalation-transmission-followup-pending",
+      bottleneckId: lineUpgradeBottleneck.id,
+      decisionRequired: "Confirm revised energisation date with WAPP",
+      level: "INSTITUTION_LEADERSHIP",
+      owner: "Transmission Company of Nigeria",
+      dueDate: new Date("2027-01-15T00:00:00Z"),
+      status: "ESCALATED",
+      resolution: null,
+      evidenceUrl: null,
+    },
+    update: {},
+  });
+
   // No branding seed here on purpose - BrandingService.get() lazily
   // upserts the full default row (countryName/colors/fonts/currency) on
   // its first call, so seeding a partial row here would just be a second,

@@ -209,6 +209,7 @@ model Pillar {
   datasets    Dataset[]
   programmes  Programme[]
   projects    Project[]
+  bottlenecks Bottleneck[]
 
   @@map("pillars")
 }
@@ -757,6 +758,104 @@ model Milestone {
 
   @@index([projectId])
   @@map("milestones")
+}
+
+// --- Bottlenecks & Exceptions (Programs Phase B) ---------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/bottlenecks.ts. Distinct from
+// Executive Overview's own lighter "Bottleneck" shape and its own severity
+// vocabulary (critical/regulatory/delayed/blocked) - this is the full,
+// authoritative register. `linkedRecord` is free text (an indicator,
+// programme or project reference); when it exactly equals a real Programme
+// or Project id, that record's own `bottlenecks[]` field is derived by
+// matching against it at read time (see programs.mappers.ts) rather than a
+// stored join - same "derive, don't duplicate" rule as everywhere else in
+// this schema. `ageDays`/`daysOverdue` are likewise never stored, always
+// computed from `dateRaised`/`dueDate` at read time.
+
+enum RegisterSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BottleneckStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  ESCALATED
+  RESOLVED
+}
+
+enum EscalationStatus {
+  NOT_ESCALATED
+  ESCALATED
+  OVERDUE
+  RESOLVED
+}
+
+enum EscalationLevel {
+  PROGRAMME_MANAGEMENT
+  INSTITUTION_LEADERSHIP
+  STEERING_COMMITTEE
+  MINISTERIAL
+}
+
+model Bottleneck {
+  id               String             @id @default(cuid())
+  issue            String
+  category         BottleneckCategory
+  severity         RegisterSeverity
+  pillarId         String
+  pillar           Pillar             @relation(fields: [pillarId], references: [id])
+  linkedRecord     String             @default("")
+  institution      String
+  dateRaised       DateTime           @default(now())
+  followUp         String             @default("")
+  escalationStatus EscalationStatus   @default(NOT_ESCALATED)
+  status           BottleneckStatus   @default(OPEN)
+  lifecycleStage   LifecycleStage
+
+  statusHistory    BottleneckStatusHistoryEntry[]
+  escalations      Escalation[]
+
+  @@index([pillarId])
+  @@map("bottlenecks")
+}
+
+/// One reporting-cycle snapshot in a bottleneck's status trail - appended
+/// whenever `status` actually changes value, not overwritten.
+model BottleneckStatusHistoryEntry {
+  id           String           @id @default(cuid())
+  bottleneckId String
+  bottleneck   Bottleneck       @relation(fields: [bottleneckId], references: [id], onDelete: Cascade)
+  period       String
+  status       BottleneckStatus
+  createdAt    DateTime         @default(now())
+
+  @@index([bottleneckId])
+  @@map("bottleneck_status_history")
+}
+
+/// No create/update endpoint exists anywhere in the real contract for this
+/// table (confirmed by reading bottlenecks.ts directly - only
+/// escalationRecordSchema's read shape is defined) - seeded data only, same
+/// pattern as RoleDefinition.
+model Escalation {
+  id               String            @id @default(cuid())
+  bottleneckId     String
+  bottleneck       Bottleneck        @relation(fields: [bottleneckId], references: [id])
+  decisionRequired String
+  level            EscalationLevel
+  owner            String
+  dueDate          DateTime
+  status           EscalationStatus  @default(NOT_ESCALATED)
+  resolution       String?
+  evidenceUrl      String?
+
+  @@index([bottleneckId])
+  @@map("escalations")
 }
 
 // --- Reports --------------------------------------------------------------
