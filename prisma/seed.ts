@@ -6,7 +6,13 @@ const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL
 
 // Display metadata + module-reachability for the 7 fixed roles - see the
 // RoleDefinition model comment in schema.prisma for why this is seeded
-// data, not an admin-editable table.
+// data, not an admin-editable table. label/permissions/modules match the
+// real frontend's role table exactly (m300-frontend/src/mocks/data/
+// administration.ts's administrationOverview.roles) - modules in
+// particular MUST be the human-readable labels roleReachesModule() in
+// overview.mappers.ts compares against ("Data Submissions & Validation"),
+// not lowercase-hyphen codes, or module-based filtering silently never
+// matches.
 const ROLE_DEFINITIONS: {
   role: RoleName;
   label: string;
@@ -19,49 +25,49 @@ const ROLE_DEFINITIONS: {
     label: "System Administrator",
     description: "Full platform access, including user management and site configuration.",
     permissions: Object.values(Permission),
-    modules: ["*"], // sentinel: reaches every module, checked explicitly in canRoleReachModule
+    modules: ["All modules"],
   },
   {
     role: RoleName.INSTITUTIONAL_DATA_PROVIDER,
     label: "Institutional Data Provider",
     description: "Submits data on behalf of their institution and tracks programme delivery.",
-    permissions: [Permission.VIEW, Permission.SUBMIT],
-    modules: ["data-submissions", "programs"],
+    permissions: [Permission.VIEW, Permission.SUBMIT, Permission.EDIT, Permission.EXPORT],
+    modules: ["Data Submissions & Validation", "Implementation Register"],
   },
   {
     role: RoleName.DATA_REVIEWER,
     label: "Data Reviewer",
     description: "Reviews submitted data for structural and business-rule validity.",
-    permissions: [Permission.VIEW, Permission.VALIDATE],
-    modules: ["data-submissions", "kpi-directory"],
+    permissions: [Permission.VIEW, Permission.EDIT, Permission.EXPORT],
+    modules: ["Data Submissions & Validation", "KPI Explorer"],
   },
   {
     role: RoleName.VALIDATOR,
     label: "Validator",
     description: "Validates and approves or rejects submitted data.",
-    permissions: [Permission.VIEW, Permission.VALIDATE, Permission.APPROVE],
-    modules: ["data-submissions", "kpi-directory"],
+    permissions: [Permission.VIEW, Permission.VALIDATE, Permission.EXPORT],
+    modules: ["Data Submissions & Validation", "KPI Explorer"],
   },
   {
     role: RoleName.DASHBOARD_MANAGER,
     label: "Dashboard Manager",
     description: "Manages programme delivery and monitors performance dashboards.",
-    permissions: [Permission.VIEW, Permission.EXPORT],
-    modules: ["executive-overview", "pillar-dashboards", "state-disco", "programs", "kpi-directory", "reports"],
+    permissions: [Permission.VIEW, Permission.EDIT, Permission.APPROVE, Permission.EXPORT],
+    modules: ["All monitoring modules", "Reports & Exports"],
   },
   {
     role: RoleName.OVERSIGHT_USER,
     label: "Oversight User",
     description: "Monitors national progress and exports reports for oversight purposes.",
     permissions: [Permission.VIEW, Permission.EXPORT],
-    modules: ["executive-overview", "pillar-dashboards", "reports"],
+    modules: ["Executive Overview", "Compact pillar dashboards", "Reports & Exports"],
   },
   {
     role: RoleName.READ_ONLY_USER,
-    label: "Read-only User",
+    label: "Read-Only User",
     description: "Views the national executive overview only.",
     permissions: [Permission.VIEW],
-    modules: ["executive-overview"],
+    modules: ["Executive Overview"],
   },
 ];
 
@@ -86,6 +92,7 @@ async function main() {
     create: {
       email: "admin@m300.local",
       fullName: "Seed Administrator",
+      designation: "System Administrator",
       role: RoleName.SYSTEM_ADMINISTRATOR,
       status: AccountStatus.ACTIVE,
       passwordHash: adminPasswordHash,
@@ -94,15 +101,33 @@ async function main() {
   });
 
   const providerPasswordHash = await argon2.hash("ChangeMe123!");
-  await prisma.user.upsert({
+  const provider = await prisma.user.upsert({
     where: { email: "provider@m300.local" },
     create: {
       email: "provider@m300.local",
       fullName: "Seed Data Provider",
+      designation: "Monitoring Officer",
       role: RoleName.INSTITUTIONAL_DATA_PROVIDER,
       status: AccountStatus.ACTIVE,
       institutionId: institution.id,
       passwordHash: providerPasswordHash,
+    },
+    update: {},
+  });
+
+  // One example row for Administration > Access Scope - this table is
+  // read-only from the API (see ScopeAssignment's comment in schema.prisma),
+  // so seed data is the only way anything shows up in it for now.
+  await prisma.scopeAssignment.upsert({
+    where: { id: "seed-scope-assignment" },
+    create: {
+      id: "seed-scope-assignment",
+      userId: provider.id,
+      level: "DISTRIBUTION_COMPANY",
+      scope: institution.name,
+      responsibility: "Submits and tracks monthly access-expansion data",
+      effectiveFrom: new Date("2025-01-01T00:00:00Z"),
+      active: true,
     },
     update: {},
   });

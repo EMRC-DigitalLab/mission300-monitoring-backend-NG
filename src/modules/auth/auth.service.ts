@@ -5,7 +5,8 @@ import { AccountStatus } from "@prisma/client";
 import * as argon2 from "argon2";
 import { PrismaService } from "@/prisma/prisma.service";
 import { EmailService } from "@/notifications/email/email.service";
-import { accountInvitedEmail, passwordResetEmail } from "@/notifications/email/templates";
+import { accountInvitedEmail, passwordResetEmail, type EmailBrand } from "@/notifications/email/templates";
+import { BrandingService } from "@/modules/administration/branding/branding.service";
 import type { IdentifyDto } from "@/modules/auth/dto/identify.dto";
 import type { LoginDto } from "@/modules/auth/dto/login.dto";
 import type { ForgotPasswordDto } from "@/modules/auth/dto/forgot-password.dto";
@@ -20,7 +21,18 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly email: EmailService,
+    private readonly branding: BrandingService,
   ) {}
+
+  /** Whatever an admin has currently saved in Administration > Customization. */
+  private async getEmailBrand(): Promise<EmailBrand> {
+    const settings = await this.branding.get();
+    return {
+      primaryColor: settings.primaryColor,
+      secondaryColor: settings.secondaryColor,
+      logoUrl: settings.logoUrl,
+    };
+  }
 
   /**
    * Step 1 of the two-step login flow. Deliberately identical response
@@ -51,6 +63,10 @@ export class AuthService {
 
     const accessToken = await this.jwt.signAsync({ sub: user.id });
 
+    // Read by userAccountSchema.lastLogin in the Administration module's
+    // user table (see overview.mappers.ts) - null until this fires once.
+    void this.prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
+
     return {
       accessToken,
       user: {
@@ -77,7 +93,10 @@ export class AuthService {
 
     const token = await this.createPasswordResetToken(user.id, RESET_PASSWORD_TTL_MS);
     const resetUrl = `${process.env.FRONTEND_URL}/account/reset-password?token=${token}`;
-    const { subject, html } = passwordResetEmail({ fullName: user.fullName, resetUrl });
+    const { subject, html } = passwordResetEmail(
+      { fullName: user.fullName, resetUrl },
+      await this.getEmailBrand(),
+    );
     await this.email.send({ to: user.email, subject, html });
   }
 
@@ -138,7 +157,10 @@ export class AuthService {
 
     const token = await this.createPasswordResetToken(userId, SET_PASSWORD_TTL_MS);
     const setPasswordUrl = `${process.env.FRONTEND_URL}/account/set-password?token=${token}`;
-    const { subject, html } = accountInvitedEmail({ fullName: user.fullName, setPasswordUrl });
+    const { subject, html } = accountInvitedEmail(
+      { fullName: user.fullName, setPasswordUrl },
+      await this.getEmailBrand(),
+    );
     await this.email.send({ to: user.email, subject, html });
   }
 }

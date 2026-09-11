@@ -32,8 +32,18 @@ export const envSchema = z.object({
   EMAIL_FROM: z.string().default("M300 Compact Dashboard <notifications@m300.energymrc.ng>"),
 
   // Base URL of the frontend - used only to build set-password/reset-password
-  // links in emails (e.g. `${FRONTEND_URL}/account/set-password?token=...`).
+  // links in emails (e.g. `${FRONTEND_URL}/account/set-password?token=...`),
+  // and to resolve the DEFAULT logo (/Logos/geapp.png, a frontend static
+  // asset) for the email header - see notifications/email/templates/layout.ts.
   FRONTEND_URL: z.string().default("http://localhost:5173"),
+
+  // Base URL of THIS API, as reachable from the public internet (not
+  // 127.0.0.1) - frontend and backend are two separate origins (Vercel +
+  // its own VPS, see README.md), so this can't be derived from FRONTEND_URL.
+  // Used only to resolve an admin-uploaded logo for email, since
+  // GET /branding/logo/:filename is a backend route, not a frontend asset -
+  // see notifications/email/templates/layout.ts.
+  BACKEND_URL: z.string().default("http://localhost:3000"),
 
   // First-boot only: if the users table is empty, one SYSTEM_ADMINISTRATOR
   // is created from these two values (see bootstrap-admin.service.ts) so an

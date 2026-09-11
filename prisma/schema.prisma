@@ -82,10 +82,17 @@ model User {
   email          String      @unique
   passwordHash   String
   fullName       String
+  /// Job title, e.g. "Monitoring Officer" - free text, matches the frontend's
+  /// invite form and userAccountSchema.designation exactly (no enum backing it).
+  designation    String      @default("")
   role           RoleName
   status         AccountStatus @default(PENDING)
   institutionId  String?
   institution    Institution? @relation(fields: [institutionId], references: [id])
+  /// Set on every successful login (see auth.service.ts) - null for an
+  /// invited account that has never signed in, matching userAccountSchema's
+  /// lastLogin exactly.
+  lastLogin      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -96,9 +103,42 @@ model User {
   uploadedFiles    UploadedFile[]
   webhookSubscriptions WebhookSubscription[]
   passwordResetTokens  PasswordResetToken[]
+  scopeAssignments     ScopeAssignment[]
 
   @@index([institutionId])
   @@map("users")
+}
+
+// Read-only from the API's perspective - the real frontend (m300-frontend)
+// has no create/edit/delete UI for this anywhere, only a display table
+// (Administration > Access Scope). Matches scopeAssignmentSchema in
+// src/api/schemas/administration.ts exactly.
+enum ScopeLevel {
+  NATIONAL
+  STATE
+  DISTRIBUTION_COMPANY
+  INSTITUTION
+  PROGRAMME
+  PROJECT
+  DATASET
+  INDICATOR
+}
+
+model ScopeAssignment {
+  id             String     @id @default(cuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  level          ScopeLevel
+  /// The specific state, DisCo, programme, etc., e.g. "Ikeja DisCo".
+  scope          String
+  responsibility String
+  effectiveFrom  DateTime
+  /// Null for an open-ended assignment.
+  effectiveTo    DateTime?
+  active         Boolean    @default(true)
+
+  @@index([userId])
+  @@map("scope_assignments")
 }
 
 // One mechanism, two callers: an invited user setting their first password,
@@ -363,16 +403,28 @@ model Report {
 
 // --- Audit log ------------------------------------------------------------
 
+// Human-readable action label + module + priorValue/newValue strings are
+// derived at read time from `action`/`before`/`after` (see
+// src/modules/administration/overview/audit-event.mapper.ts) rather than
+// stored redundantly - `action` stays a machine key ("user.status_changed")
+// so it's still usable for filtering/analytics independent of display text.
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  REJECTED
+}
+
 model AuditLogEntry {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   actorId    String
-  actor      User     @relation(fields: [actorId], references: [id])
+  actor      User        @relation(fields: [actorId], references: [id])
   action     String // e.g. "submission.approved", "user.role_changed"
   entityType String
   entityId   String
   before     Json?
   after      Json?
-  createdAt  DateTime @default(now())
+  result     AuditResult @default(SUCCESS)
+  createdAt  DateTime    @default(now())
 
   @@index([entityType, entityId])
   @@index([actorId])

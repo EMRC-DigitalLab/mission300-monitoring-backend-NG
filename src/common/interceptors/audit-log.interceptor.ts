@@ -1,16 +1,23 @@
 import { Injectable, type NestInterceptor, type ExecutionContext, type CallHandler } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { tap } from "rxjs/operators";
-import type { Observable } from "rxjs";
+import { catchError, tap } from "rxjs/operators";
+import { throwError, type Observable } from "rxjs";
+import { AuditResult } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { AUDIT_ACTION_KEY } from "@/common/decorators/audit-action.decorator";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 
 /**
- * Writes an AuditLogEntry after any mutating endpoint tagged with
- * @AuditAction succeeds. This keeps audit logging out of every individual
- * service method - one interceptor, applied globally, catches every tagged
- * write. Failed requests are not logged here (nothing happened to record).
+ * Writes an AuditLogEntry for any mutating endpoint tagged with
+ * @AuditAction - both when it succeeds and when it throws, since a genuine
+ * failure (result: FAILURE in the frontend's audit contract - see
+ * overview.mappers.ts's toAuditEventResponse) is itself something the real
+ * audit trail needs to show, not just successful writes.
+ *
+ * "rejected" (a successful HTTP call that records a negative business
+ * decision, e.g. a submission rejection) is derived per-action via
+ * deriveResult() below, since the interceptor otherwise has no way to know
+ * a 200 response represents a rejection rather than an approval.
  */
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
@@ -23,23 +30,49 @@ export class AuditLogInterceptor implements NestInterceptor {
     const action = this.reflector.get<string | undefined>(AUDIT_ACTION_KEY, context.getHandler());
     if (!action) return next.handle();
 
-    const request = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: AuthenticatedUser; params?: Record<string, string> }>();
+    if (!request.user) return next.handle();
+    const actorId = request.user.id;
+    const fallbackEntityId = request.params?.id ?? "unknown";
 
     return next.handle().pipe(
       tap((result: unknown) => {
-        if (!request.user) return;
         const entity = result as { id?: string } | undefined;
-
         void this.prisma.auditLogEntry.create({
           data: {
-            actorId: request.user.id,
+            actorId,
             action,
             entityType: action.split(".")[0],
-            entityId: entity?.id ?? "unknown",
+            entityId: entity?.id ?? fallbackEntityId,
             after: (result ?? undefined) as never,
+            result: deriveResult(action, result),
           },
         });
       }),
+      catchError((error: unknown) => {
+        void this.prisma.auditLogEntry.create({
+          data: {
+            actorId,
+            action,
+            entityType: action.split(".")[0],
+            entityId: fallbackEntityId,
+            result: AuditResult.FAILURE,
+          },
+        });
+        return throwError(() => error);
+      }),
     );
   }
+}
+
+// Only submission.decision_recorded can currently produce "rejected" - its
+// response is the updated Submission, whose `status` reflects the decision.
+function deriveResult(action: string, result: unknown): AuditResult {
+  if (action === "submission.decision_recorded") {
+    const status = (result as { status?: string } | undefined)?.status;
+    if (status === "REJECTED") return AuditResult.REJECTED;
+  }
+  return AuditResult.SUCCESS;
 }

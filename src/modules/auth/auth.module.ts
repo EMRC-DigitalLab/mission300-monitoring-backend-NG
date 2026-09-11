@@ -6,10 +6,12 @@ import { AuthController } from "@/modules/auth/auth.controller";
 import { AuthService } from "@/modules/auth/auth.service";
 import { JwtStrategy } from "@/modules/auth/jwt.strategy";
 import { BootstrapAdminService } from "@/modules/auth/bootstrap-admin.service";
+import { AdministrationModule } from "@/modules/administration/administration.module";
 
 @Module({
   imports: [
     PassportModule,
+    AdministrationModule, // for BrandingService - AuthService reads it to brand invite/reset emails
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

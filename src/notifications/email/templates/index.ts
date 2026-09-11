@@ -5,4 +5,4 @@ export { accountInvitedEmail } from "@/notifications/email/templates/account-inv
 export { passwordResetEmail } from "@/notifications/email/templates/password-reset";
 export { submissionDecisionEmail } from "@/notifications/email/templates/submission-decision";
 export { reportReadyEmail } from "@/notifications/email/templates/report-ready";
-export type { EmailTemplate } from "@/notifications/email/templates/layout";
+export type { EmailTemplate, EmailBrand } from "@/notifications/email/templates/layout";

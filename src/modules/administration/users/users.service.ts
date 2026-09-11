@@ -4,6 +4,7 @@ import * as argon2 from "argon2";
 import { AccountStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
+import { toUserAccountResponse } from "@/modules/administration/overview/overview.mappers";
 import type { InviteUserDto } from "@/modules/administration/users/dto/invite-user.dto";
 
 @Injectable()
@@ -28,19 +29,28 @@ export class UsersService {
     // it: refresh the details in case the admin corrected them, and send a
     // fresh set-password link (old one, if any, stays invalid - it's a
     // separate PasswordResetToken row and only the latest one matters).
-    if (existing) {
-      if (existing.status !== AccountStatus.PENDING) {
-        throw new ConflictException("A user with this email already exists.");
-      }
+    // Deliberately more permissive than the mock, which always 409s on any
+    // existing email with no resend path at all - explicitly requested.
+    if (existing && existing.status !== AccountStatus.PENDING) {
+      throw new ConflictException("A user account already exists for that email.");
+    }
 
+    const institution = await this.resolveInstitution(dto.institution);
+    const message = `An invitation was sent to ${dto.email}.`;
+
+    if (existing) {
       const user = await this.prisma.user.update({
         where: { id: existing.id },
-        data: { fullName: dto.fullName, role: dto.role, institutionId: dto.institutionId },
+        data: {
+          fullName: dto.name,
+          designation: dto.designation,
+          role: dto.role,
+          institutionId: institution.id,
+        },
+        include: { institution: true },
       });
-
       await this.rabbitmq.publish("user.invited", { userId: user.id, email: user.email });
-
-      return { id: user.id, email: user.email, fullName: user.fullName, role: user.role };
+      return { user: toUserAccountResponse(user), message };
     }
 
     // Starts PENDING (schema default) with a random, unusable password -
@@ -52,19 +62,35 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
-        fullName: dto.fullName,
+        fullName: dto.name,
+        designation: dto.designation,
         role: dto.role,
-        institutionId: dto.institutionId,
+        institutionId: institution.id,
         passwordHash,
       },
+      include: { institution: true },
     });
 
     await this.rabbitmq.publish("user.invited", { userId: user.id, email: user.email });
 
-    return { id: user.id, email: user.email, fullName: user.fullName, role: user.role };
+    return { user: toUserAccountResponse(user), message };
   }
 
   setStatus(id: string, status: AccountStatus) {
     return this.prisma.user.update({ where: { id }, data: { status } });
+  }
+
+  /**
+   * "institution" arrives as free text (matches the real contract - see
+   * inviteUserRequestSchema), not an id, since the frontend's invite form
+   * has no institution CRUD of its own either. Find-or-create by exact
+   * name so repeat invites into the same institution don't create
+   * duplicate rows.
+   */
+  private async resolveInstitution(name: string) {
+    const trimmed = name.trim();
+    const existing = await this.prisma.institution.findFirst({ where: { name: trimmed } });
+    if (existing) return existing;
+    return this.prisma.institution.create({ data: { name: trimmed, type: "Institution" } });
   }
 }

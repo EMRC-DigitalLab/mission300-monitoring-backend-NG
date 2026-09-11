@@ -4,7 +4,8 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { EmailService } from "@/notifications/email/email.service";
 import { WebhooksService } from "@/notifications/webhooks/webhooks.service";
 import { AuthService } from "@/modules/auth/auth.service";
-import { submissionDecisionEmail, reportReadyEmail } from "@/notifications/email/templates";
+import { submissionDecisionEmail, reportReadyEmail, type EmailBrand } from "@/notifications/email/templates";
+import { BrandingService } from "@/modules/administration/branding/branding.service";
 
 /**
  * Single subscriber for every notification-worthy domain event, fanning
@@ -22,7 +23,18 @@ export class NotificationsConsumer implements OnModuleInit {
     private readonly email: EmailService,
     private readonly webhooks: WebhooksService,
     private readonly auth: AuthService,
+    private readonly branding: BrandingService,
   ) {}
+
+  /** Whatever an admin has currently saved in Administration > Customization. */
+  private async getEmailBrand(): Promise<EmailBrand> {
+    const settings = await this.branding.get();
+    return {
+      primaryColor: settings.primaryColor,
+      secondaryColor: settings.secondaryColor,
+      logoUrl: settings.logoUrl,
+    };
+  }
 
   async onModuleInit() {
     await this.rabbitmq.subscribe(
@@ -59,11 +71,14 @@ export class NotificationsConsumer implements OnModuleInit {
     const latestDecision = submission?.reviewDecisions[0];
     if (!submission || !latestDecision) return;
 
-    const { subject, html } = submissionDecisionEmail({
-      institutionName: submission.institution.name,
-      decision: latestDecision.decision,
-      comment: latestDecision.comment,
-    });
+    const { subject, html } = submissionDecisionEmail(
+      {
+        institutionName: submission.institution.name,
+        decision: latestDecision.decision,
+        comment: latestDecision.comment,
+      },
+      await this.getEmailBrand(),
+    );
     await this.email.send({ to: submission.submittedBy.email, subject, html });
   }
 
@@ -82,7 +97,7 @@ export class NotificationsConsumer implements OnModuleInit {
     });
     if (!report) return;
 
-    const { subject, html } = reportReadyEmail({ reportType: report.type });
+    const { subject, html } = reportReadyEmail({ reportType: report.type }, await this.getEmailBrand());
     await this.email.send({ to: report.requestedBy.email, subject, html });
   }
 }

@@ -3,6 +3,7 @@ import {
   renderStatusBadge,
   escapeHtml,
   type BadgeTone,
+  type EmailBrand,
   type EmailTemplate,
 } from "@/notifications/email/templates/layout";
 
@@ -16,11 +17,14 @@ const decisionDisplay: Record<string, { label: string; tone: BadgeTone }> = {
   REJECT: { label: "Rejected", tone: "negative" },
 };
 
-export function submissionDecisionEmail(params: {
-  institutionName: string;
-  decision: string;
-  comment: string;
-}): EmailTemplate {
+export function submissionDecisionEmail(
+  params: {
+    institutionName: string;
+    decision: string;
+    comment: string;
+  },
+  brand: EmailBrand,
+): EmailTemplate {
   const { label, tone } = decisionDisplay[params.decision] ?? {
     label: params.decision,
     tone: "neutral" as BadgeTone,
@@ -32,6 +36,7 @@ export function submissionDecisionEmail(params: {
      <p style="margin: 0 0 20px;">${renderStatusBadge(label, tone)}</p>
      <p style="margin: 0 0 4px; font-weight: 600;">Reviewer comment</p>
      <p style="margin: 0; color: #667085;">${escapeHtml(params.comment)}</p>`,
+    brand,
     `Submission decision recorded: ${label}`,
   );
   return { subject, html };
