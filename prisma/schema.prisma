@@ -207,6 +207,8 @@ model Pillar {
 
   kpis        KpiDefinition[]
   datasets    Dataset[]
+  programmes  Programme[]
+  projects    Project[]
 
   @@map("pillars")
 }
@@ -527,57 +529,234 @@ model ReviewDecision {
   @@map("review_decisions")
 }
 
-// --- Programs / projects / bottlenecks ----------------------------------
+// --- Programs / projects / milestones --------------------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/programs.ts. The consolidated
+// Programmes -> Projects -> (Milestones, Bottlenecks) drill-down - the old
+// standalone "Implementation Register" spec and the old standalone
+// "Bottlenecks & Exceptions" page were both folded into this one page on the
+// frontend (see that file's own header comment). Bottlenecks itself is a
+// separate Prisma model (Phase B of this rebuild, not yet added) - Project/
+// Programme/Milestone.bottleneckCategory below are stored, not derived, and
+// have no mutation endpoint that sets them (same pattern as KpiDefinition.
+// direction) until Phase B wires a real linkage.
 
-model Program {
-  id          String    @id @default(cuid())
-  name        String
-  description String?
-  pillarId    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+enum ExecutionStatus {
+  ON_TRACK
+  AT_RISK
+  DELAYED
+  BLOCKED
+  COMPLETED
+}
 
-  projects    Project[]
+enum RegisterPriority {
+  PRIORITY
+  STANDARD
+}
 
-  @@map("programs")
+// Reused across Programme/Project/Milestone - matches validationStatusSchema
+// in kpi-explorer.ts (imported into programs.ts for the same vocabulary).
+// Unlike KPI Explorer's own validationStatus (always derived from a
+// Submission), this one is a genuinely stored field here - there is no
+// submission/approval pipeline behind Programs records.
+enum ValidationStatus {
+  CONFIRMED
+  PUBLIC_SOURCE
+  REQUIRES_VALIDATION
+  PROVISIONAL
+  FUTURE
+}
+
+enum ProgramType {
+  GRANT
+  CONCESSIONAL_LOAN
+  PPP
+  GOVERNMENT_FUNDED
+  BLENDED_FINANCE
+}
+
+enum FundingStatus {
+  COMMITTED
+  DISBURSING
+  FULLY_DISBURSED
+  AT_RISK
+  UNFUNDED
+}
+
+// Readiness of a project not yet in active delivery - distinct from
+// lifecycleStage (identification->operations), which only applies once a
+// project IS active. Null once active.
+enum PipelineReadiness {
+  PIPELINE
+  FEASIBILITY_STUDY
+  INVESTMENT_READY
+}
+
+enum LifecycleStage {
+  IDENTIFICATION
+  DESIGN
+  PROCUREMENT
+  IMPLEMENTATION
+  COMMISSIONING
+  OPERATIONS
+}
+
+// Matches bottleneckCategorySchema in bottlenecks.ts (imported into
+// programs.ts) - defined here ahead of Phase B's Bottleneck model since
+// Programme/Project/Milestone all carry a nullable bottleneckCategory.
+enum BottleneckCategory {
+  FINANCING
+  PROCUREMENT
+  PERMITTING
+  REGULATORY_APPROVAL
+  COORDINATION
+  TECHNICAL_CONSTRAINT
+  IMPLEMENTATION_DELAY
+  DATA_OR_REPORTING
+}
+
+model Programme {
+  id                     String            @id @default(cuid())
+  name                   String
+  leadInstitution        String
+  supportingInstitutions String[]          @default([])
+  pillarId               String
+  pillar                 Pillar            @relation(fields: [pillarId], references: [id])
+  objectives             String
+  /// Null where financing is held at project level rather than programme level.
+  financing              String?
+  status                 ExecutionStatus   @default(ON_TRACK)
+  priority               RegisterPriority  @default(STANDARD)
+  startDate              DateTime
+  endDate                DateTime
+  bottleneckCategory     BottleneckCategory?
+  validationStatus       ValidationStatus  @default(PROVISIONAL)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt // serves as the contract's `lastUpdate`
+
+  projects               Project[]
+
+  @@index([pillarId])
+  @@map("programmes")
 }
 
 model Project {
-  id          String       @id @default(cuid())
-  programId   String
-  program     Program      @relation(fields: [programId], references: [id])
-  name        String
-  status      String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                 String              @id @default(cuid())
+  programmeId        String
+  programme          Programme           @relation(fields: [programmeId], references: [id])
+  name               String
+  owner              String
+  /// The named person leading delivery, distinct from `owner` (the accountable institution).
+  leadName           String
+  location           String
+  /// Not in the real projectRecordSchema contract - the Executive Overview's
+  /// ongoingProjects rows need coordinates for the delivery map, and the
+  /// frontend does not geocode location strings, so this is captured here.
+  latitude           Float
+  longitude          Float
+  coverage           String
+  /// The workbook's "M300 Pillar Alignment" - a project can align to a
+  /// different pillar than its parent programme's primary pillar.
+  pillarId           String
+  pillar              Pillar             @relation(fields: [pillarId], references: [id])
+  lifecycleStage     LifecycleStage      @default(IDENTIFICATION)
+  programType        ProgramType         @default(GOVERNMENT_FUNDED)
+  /// Null where funding has not yet been secured.
+  fundingSource      String?
+  fundingStructure   String              @default("To be confirmed")
+  fundingStatus      FundingStatus       @default(UNFUNDED)
+  /// Null once a project is active (design stage or beyond).
+  pipelineReadiness  PipelineReadiness?
+  /// The status expected at this point in the plan, shown alongside `currentStatus`.
+  projectedStatus    ExecutionStatus     @default(ON_TRACK)
+  currentStatus      ExecutionStatus     @default(ON_TRACK)
+  startDate          DateTime
+  endDate            DateTime
+  evidenceUrl        String?
+  bottleneckCategory BottleneckCategory?
+  /// The workbook's "Comment - Issues/Main Risk/Bottlenecks" narrative.
+  comment            String              @default("")
+  suggestion         String              @default("")
+  validationStatus   ValidationStatus    @default(PROVISIONAL)
 
-  bottlenecks Bottleneck[]
+  // --- profile (projectProfileSchema) ---
+  description        String              @default("")
+  budgetUsd          Decimal             @default(0)
+  disbursedUsd       Decimal             @default(0)
+  contractor         String?
+  contactName        String              @default("")
+  contactEmail       String              @default("")
 
-  @@index([programId])
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  statusHistory      ProjectStatusHistoryEntry[]
+  milestones         Milestone[]
+  documents          ProjectDocument[]
+  updates            ProjectUpdate[]
+
+  @@index([programmeId])
+  @@index([pillarId])
   @@map("projects")
 }
 
-enum BottleneckSeverity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
-model Bottleneck {
-  id          String             @id @default(cuid())
-  projectId   String?
-  project     Project?           @relation(fields: [projectId], references: [id])
-  title       String
-  description String
-  severity    BottleneckSeverity
-  category    String
-  status      String             @default("open")
-  raisedAt    DateTime           @default(now())
-  resolvedAt  DateTime?
+/// One reporting-cycle snapshot in a project's status trail - appended
+/// whenever `currentStatus` actually changes value, not overwritten.
+model ProjectStatusHistoryEntry {
+  id        String          @id @default(cuid())
+  projectId String
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  period    String
+  status    ExecutionStatus
+  createdAt DateTime        @default(now())
 
   @@index([projectId])
-  @@map("bottlenecks")
+  @@map("project_status_history")
+}
+
+model ProjectDocument {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label     String
+  url       String
+
+  @@index([projectId])
+  @@map("project_documents")
+}
+
+model ProjectUpdate {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date      DateTime
+  note      String
+
+  @@index([projectId])
+  @@map("project_updates")
+}
+
+model Milestone {
+  id                 String              @id @default(cuid())
+  projectId          String
+  project            Project             @relation(fields: [projectId], references: [id])
+  name               String
+  priority           RegisterPriority    @default(STANDARD)
+  expectedDate       DateTime
+  /// Null until the milestone is actually completed.
+  actualDate         DateTime?
+  status             ExecutionStatus     @default(ON_TRACK)
+  leadInstitution    String
+  evidenceUrl        String?
+  risk               String              @default("")
+  nextAction         String              @default("")
+  bottleneckCategory BottleneckCategory?
+  validationStatus   ValidationStatus    @default(PROVISIONAL)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([projectId])
+  @@map("milestones")
 }
 
 // --- Reports --------------------------------------------------------------

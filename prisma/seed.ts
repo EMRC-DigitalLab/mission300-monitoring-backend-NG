@@ -243,6 +243,223 @@ async function main() {
     update: {},
   });
 
+  // Programs Phase A: enough real-shaped Programme/Project/Milestone rows to
+  // exercise every headline-card rule in programs.mappers.ts's
+  // buildHeadlineCards() (a due-and-delayed priority milestone, a completed-
+  // on-time one, a pipeline-stage project, missing evidence on both a
+  // project and a milestone) - not a full copy of the frontend mock's
+  // fixture set, just enough to prove the real computation live.
+  const generationNetwork = pillarsBySlug.get("generation-network")!;
+
+  const transmissionProgramme = await prisma.programme.upsert({
+    where: { id: "seed-programme-transmission-rehab" },
+    create: {
+      id: "seed-programme-transmission-rehab",
+      name: "Transmission Rehabilitation Programme",
+      leadInstitution: "Transmission Company of Nigeria",
+      supportingInstitutions: ["Federal Ministry of Power"],
+      pillarId: generationNetwork.id,
+      objectives: "Rehabilitate ageing transmission infrastructure to reduce evacuation constraints.",
+      financing: "World Bank DARES facility",
+      status: "DELAYED",
+      priority: "PRIORITY",
+      startDate: new Date("2024-02-01T00:00:00Z"),
+      endDate: new Date("2027-12-31T00:00:00Z"),
+      bottleneckCategory: "TECHNICAL_CONSTRAINT",
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
+  const miniGridProgramme = await prisma.programme.upsert({
+    where: { id: "seed-programme-dares-minigrid" },
+    create: {
+      id: "seed-programme-dares-minigrid",
+      name: "DARES Mini-Grid Cluster Rollout",
+      leadInstitution: "Rural Electrification Agency",
+      supportingInstitutions: ["State Ministries of Energy"],
+      pillarId: lastMileAccess.id,
+      objectives: "Deploy mini-grid clusters to unserved and underserved rural communities.",
+      financing: "World Bank DARES facility",
+      status: "ON_TRACK",
+      priority: "PRIORITY",
+      startDate: new Date("2024-01-15T00:00:00Z"),
+      endDate: new Date("2028-01-15T00:00:00Z"),
+      bottleneckCategory: null,
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
+  const lineUpgradeProject = await prisma.project.upsert({
+    where: { id: "seed-project-north-east-line-upgrade" },
+    create: {
+      id: "seed-project-north-east-line-upgrade",
+      programmeId: transmissionProgramme.id,
+      name: "North East 330kV Line Upgrade",
+      owner: "Transmission Company of Nigeria",
+      leadName: "Ahmed Bello",
+      location: "North East",
+      latitude: 11.8333,
+      longitude: 13.15,
+      coverage: "Regional",
+      pillarId: generationNetwork.id,
+      lifecycleStage: "IMPLEMENTATION",
+      programType: "CONCESSIONAL_LOAN",
+      fundingSource: "World Bank DARES facility",
+      fundingStructure: "Concessional loan with federal government counterpart funding",
+      fundingStatus: "DISBURSING",
+      pipelineReadiness: null,
+      projectedStatus: "ON_TRACK",
+      currentStatus: "DELAYED",
+      startDate: new Date("2024-05-01T00:00:00Z"),
+      endDate: new Date("2026-11-30T00:00:00Z"),
+      evidenceUrl: "https://files.example.gov.ng/tcn/north-east-line-upgrade-q3.pdf",
+      bottleneckCategory: "TECHNICAL_CONSTRAINT",
+      comment: "Contractor mobilisation delays following the interim load-shedding protocol.",
+      suggestion: "Expedite contractor mobilisation incentives and confirm a revised energisation date.",
+      validationStatus: "CONFIRMED",
+      description: "Upgrade of the 330kV North East evacuation line to relieve dispatch constraints.",
+      budgetUsd: 42_000_000,
+      disbursedUsd: 18_500_000,
+      contractor: "Northline Power Contractors Ltd",
+      contactName: "Ahmed Bello",
+      contactEmail: "ahmed.bello@tcn.example.gov.ng",
+      statusHistory: {
+        create: [
+          { period: "Q2 2025", status: "ON_TRACK" },
+          { period: "Q3 2025", status: "DELAYED" },
+        ],
+      },
+      documents: {
+        create: [{ label: "Q3 2025 progress report", url: "https://files.example.gov.ng/tcn/north-east-line-upgrade-q3.pdf" }],
+      },
+      updates: {
+        create: [{ date: new Date("2025-09-01T00:00:00Z"), note: "Contractor mobilised to site; tower foundation works underway." }],
+      },
+    },
+    update: {},
+  });
+
+  const miniGridCluster4Project = await prisma.project.upsert({
+    where: { id: "seed-project-dares-cluster-4" },
+    create: {
+      id: "seed-project-dares-cluster-4",
+      programmeId: miniGridProgramme.id,
+      name: "DARES Mini-Grid Cluster 4 Commissioning",
+      owner: "Rural Electrification Agency",
+      leadName: "Fatima Suleiman",
+      location: "Cluster 4, North Central",
+      latitude: 9.0833,
+      longitude: 7.5333,
+      coverage: "Cluster",
+      pillarId: lastMileAccess.id,
+      lifecycleStage: "COMMISSIONING",
+      programType: "GRANT",
+      fundingSource: "World Bank DARES facility",
+      fundingStructure: "Results-based grant financing",
+      fundingStatus: "DISBURSING",
+      pipelineReadiness: null,
+      projectedStatus: "ON_TRACK",
+      currentStatus: "ON_TRACK",
+      startDate: new Date("2024-02-01T00:00:00Z"),
+      endDate: new Date("2025-12-31T00:00:00Z"),
+      evidenceUrl: "https://files.example.gov.ng/rea/dares-cluster-4-commissioning.pdf",
+      bottleneckCategory: null,
+      comment: "None outstanding - on track for commissioning in November.",
+      suggestion: "None - proceed to commissioning as scheduled.",
+      validationStatus: "CONFIRMED",
+      description: "Commissioning of a 400kW solar hybrid mini-grid serving four communities.",
+      budgetUsd: 3_600_000,
+      disbursedUsd: 3_100_000,
+      contractor: "GreenGrid Nigeria Ltd",
+      contactName: "Fatima Suleiman",
+      contactEmail: "fatima.suleiman@rea.example.gov.ng",
+      statusHistory: { create: [{ period: "Q3 2025", status: "ON_TRACK" }] },
+    },
+    update: {},
+  });
+
+  // Pipeline-stage project (not yet active delivery) with no evidence url -
+  // exercises pipelineReadiness and the evidenceOverdue headline card.
+  await prisma.project.upsert({
+    where: { id: "seed-project-dares-cluster-12-pipeline" },
+    create: {
+      id: "seed-project-dares-cluster-12-pipeline",
+      programmeId: miniGridProgramme.id,
+      name: "DARES Mini-Grid Cluster 12 (Pipeline)",
+      owner: "Rural Electrification Agency",
+      leadName: "Fatima Suleiman",
+      location: "Cluster 12, North East",
+      latitude: 12.0,
+      longitude: 13.7,
+      coverage: "Cluster",
+      pillarId: lastMileAccess.id,
+      lifecycleStage: "IDENTIFICATION",
+      programType: "GRANT",
+      fundingSource: null,
+      fundingStructure: "Results-based grant financing, subject to feasibility outcome",
+      fundingStatus: "UNFUNDED",
+      pipelineReadiness: "FEASIBILITY_STUDY",
+      projectedStatus: "ON_TRACK",
+      currentStatus: "ON_TRACK",
+      startDate: new Date("2025-09-01T00:00:00Z"),
+      endDate: new Date("2026-03-31T00:00:00Z"),
+      evidenceUrl: null,
+      bottleneckCategory: null,
+      comment: "Feasibility study underway; site selection confirmed.",
+      suggestion: "None - proceed with feasibility study as scheduled.",
+      validationStatus: "PROVISIONAL",
+      description: "Candidate 400kW solar hybrid mini-grid site, currently at feasibility study stage.",
+      statusHistory: { create: [{ period: "Q3 2025", status: "ON_TRACK" }] },
+    },
+    update: {},
+  });
+
+  // Due, delayed priority milestone with no evidence - exercises
+  // milestoneOnTime's delayed/blocked counts and evidenceOverdue together.
+  await prisma.milestone.upsert({
+    where: { id: "seed-milestone-north-east-energisation" },
+    create: {
+      id: "seed-milestone-north-east-energisation",
+      projectId: lineUpgradeProject.id,
+      name: "North East line upgrade energisation",
+      priority: "PRIORITY",
+      expectedDate: new Date("2025-08-15T00:00:00Z"),
+      actualDate: null,
+      status: "DELAYED",
+      leadInstitution: "Transmission Company of Nigeria",
+      evidenceUrl: null,
+      risk: "Contractor mobilisation delays following interim load-shedding protocol.",
+      nextAction: "Confirm revised energisation date with contractor.",
+      bottleneckCategory: "TECHNICAL_CONSTRAINT",
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
+  // Completed-on-time priority milestone - exercises the completedOnTime
+  // path of the milestoneOnTime headline card.
+  await prisma.milestone.upsert({
+    where: { id: "seed-milestone-cluster-4-sat" },
+    create: {
+      id: "seed-milestone-cluster-4-sat",
+      projectId: miniGridCluster4Project.id,
+      name: "Cluster 4 site acceptance testing",
+      priority: "PRIORITY",
+      expectedDate: new Date("2025-10-15T00:00:00Z"),
+      actualDate: new Date("2025-10-08T00:00:00Z"),
+      status: "COMPLETED",
+      leadInstitution: "Rural Electrification Agency",
+      evidenceUrl: "https://files.example.gov.ng/rea/dares-cluster-4-sat.pdf",
+      risk: "None outstanding.",
+      nextAction: "Proceed to commissioning in November.",
+      bottleneckCategory: null,
+      validationStatus: "CONFIRMED",
+    },
+    update: {},
+  });
+
   // No branding seed here on purpose - BrandingService.get() lazily
   // upserts the full default row (countryName/colors/fonts/currency) on
   // its first call, so seeding a partial row here would just be a second,

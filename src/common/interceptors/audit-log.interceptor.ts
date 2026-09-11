@@ -1,7 +1,7 @@
 import { Injectable, type NestInterceptor, type ExecutionContext, type CallHandler } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { catchError, tap } from "rxjs/operators";
-import { throwError, type Observable } from "rxjs";
+import { catchError, map, mergeMap } from "rxjs/operators";
+import { from, throwError, type Observable } from "rxjs";
 import { AuditResult } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { AUDIT_ACTION_KEY } from "@/common/decorators/audit-action.decorator";
@@ -18,6 +18,17 @@ import type { AuthenticatedUser } from "@/common/decorators/current-user.decorat
  * decision, e.g. a submission rejection) is derived per-action via
  * deriveResult() below, since the interceptor otherwise has no way to know
  * a 200 response represents a rejection rather than an approval.
+ *
+ * The write is awaited as part of the observable chain (mergeMap), not
+ * fired with a bare `void` promise. A fire-and-forget write lets the HTTP
+ * response return before it resolves - the underlying pg driver adapter
+ * (@prisma/adapter-pg) then reuses the same connection for the NEXT
+ * request's own queries while this write is still in flight ("Calling
+ * client.query() when the client is already executing a query" is pg's own
+ * warning for this), and the write can silently lose the race and never
+ * land. Reproduced directly: a rapid create->create->update->delete
+ * sequence against a fresh DB left rows missing under the old `void`
+ * version and wrote all of them correctly once awaited inline here.
  */
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
@@ -38,31 +49,34 @@ export class AuditLogInterceptor implements NestInterceptor {
     const fallbackEntityId = request.params?.id ?? "unknown";
 
     return next.handle().pipe(
-      tap((result: unknown) => {
+      mergeMap((result: unknown) => {
         const entity = result as { id?: string } | undefined;
-        void this.prisma.auditLogEntry.create({
-          data: {
-            actorId,
-            action,
-            entityType: action.split(".")[0],
-            entityId: entity?.id ?? fallbackEntityId,
-            after: (result ?? undefined) as never,
-            result: deriveResult(action, result),
-          },
-        });
+        return from(
+          this.prisma.auditLogEntry.create({
+            data: {
+              actorId,
+              action,
+              entityType: action.split(".")[0],
+              entityId: entity?.id ?? fallbackEntityId,
+              after: (result ?? undefined) as never,
+              result: deriveResult(action, result),
+            },
+          }),
+        ).pipe(map(() => result));
       }),
-      catchError((error: unknown) => {
-        void this.prisma.auditLogEntry.create({
-          data: {
-            actorId,
-            action,
-            entityType: action.split(".")[0],
-            entityId: fallbackEntityId,
-            result: AuditResult.FAILURE,
-          },
-        });
-        return throwError(() => error);
-      }),
+      catchError((error: unknown) =>
+        from(
+          this.prisma.auditLogEntry.create({
+            data: {
+              actorId,
+              action,
+              entityType: action.split(".")[0],
+              entityId: fallbackEntityId,
+              result: AuditResult.FAILURE,
+            },
+          }),
+        ).pipe(mergeMap(() => throwError(() => error))),
+      ),
     );
   }
 }

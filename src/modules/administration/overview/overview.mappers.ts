@@ -91,11 +91,15 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
   "user.invited": { label: "Invited a user", module: MODULE_LABELS.administration },
   "user.status_changed": { label: "Changed account status", module: MODULE_LABELS.administration },
   "user.profile_updated": { label: "Updated own profile", module: MODULE_LABELS.administration },
-  "bottleneck.created": {
-    label: "Logged a bottleneck",
-    module: MODULE_LABELS["implementation-register"],
-  },
-  "program.created": { label: "Created a program", module: MODULE_LABELS["implementation-register"] },
+  // Module string is "Programs" (not MODULE_LABELS["implementation-register"])
+  // to match the real frontend mock's own recordAuditEvent() calls in
+  // mocks/handlers/programs.ts exactly - see programs.mappers.ts's header
+  // comment for why this looks inconsistent with the Administration audit
+  // filter's "Implementation Register" label.
+  "programme.created": { label: "Added a programme", module: "Programs" },
+  "project.created": { label: "Added a project", module: "Programs" },
+  "project.updated": { label: "Updated a project", module: "Programs" },
+  "project.deleted": { label: "Removed a project", module: "Programs" },
   "report.requested": { label: "Requested a report", module: MODULE_LABELS.reports },
   "report.deleted": { label: "Deleted a report", module: MODULE_LABELS.reports },
   "submission.created": { label: "Created a submission", module: MODULE_LABELS["data-submissions"] },
