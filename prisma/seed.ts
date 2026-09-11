@@ -187,6 +187,261 @@ async function main() {
     update: {},
   });
 
+  // Executive Overview reads every headline/channel/bullet-metric figure
+  // from a real KpiDefinition (see executive-overview.mappers.ts's header
+  // comment) - unlike the frontend mock, which hardcodes two of the four
+  // headline cards with literal fabricated numbers and no real backing KPI
+  // at all. These 12 codes are the well-known indicators that page's
+  // service looks up by code; each is real test fixture data (clearly
+  // placeholder, not actual Nigeria figures), same category as
+  // access-rate-national above. `target` is left null for generation
+  // capacity and grid connections specifically - the real spec states
+  // neither has a single approved Compact target.
+  const EXEC_OVERVIEW_KPIS: {
+    code: string;
+    name: string;
+    unit: string;
+    pillarSlug: string;
+    category: string;
+    definition: string;
+    formula: string;
+    sourceInstitution: string;
+    sourceDataset: string;
+    baseline: number | null;
+    baselineLabel: string;
+    target: number | null;
+    targetLabel: string;
+    targetDate: string;
+    direction?: "HIGHER_IS_BETTER" | "LOWER_IS_BETTER";
+  }[] = [
+    {
+      code: "generation-capacity-available",
+      name: "Available Generation Capacity",
+      unit: "MW",
+      pillarSlug: "generation-network",
+      category: "Output",
+      definition: "GenCo-declared available generation capacity before real-time constraints.",
+      formula: "Sum of available capacity declared by generating companies",
+      sourceInstitution: "Nigerian Independent System Operator",
+      sourceDataset: "Daily Generation Availability Return",
+      baseline: 8500,
+      baselineLabel: "8,500 MW (2025 baseline)",
+      target: null,
+      targetLabel: "Tracked against an approved Integrated Resource Plan projection when available",
+      targetDate: "",
+    },
+    {
+      code: "people-electricity-access",
+      name: "People With Electricity Access",
+      unit: "people",
+      pillarSlug: "last-mile-access",
+      category: "Outcome",
+      definition: "Cumulative number of people with electricity access across grid, mini-grid and solar home system solutions.",
+      formula: "Connections across all electrification routes, converted to people using the national household-size methodology",
+      sourceInstitution: "Rural Electrification Agency",
+      sourceDataset: "Compact Progress Report",
+      baseline: 86_600_000,
+      baselineLabel: "86.6M baseline (2024)",
+      target: 236_700_000,
+      targetLabel: "236.7M by 2030",
+      targetDate: "2030",
+    },
+    {
+      code: "clean-cooking-access",
+      name: "Clean Cooking Access",
+      unit: "%",
+      pillarSlug: "clean-cooking",
+      category: "Outcome",
+      definition: "Share of Nigeria's population with access to clean fuels and technologies for cooking.",
+      formula: "(Population with clean cooking access / Total population) x 100",
+      sourceInstitution: "Federal Ministry of Environment",
+      sourceDataset: "Compact Progress Report",
+      baseline: 22,
+      baselineLabel: "22% baseline (2024)",
+      target: 100,
+      targetLabel: "100% by 2030",
+      targetDate: "2030",
+    },
+    {
+      code: "grid-connections",
+      name: "New Grid Connections",
+      unit: "connections",
+      pillarSlug: "last-mile-access",
+      category: "Output",
+      definition: "Active registered grid customers, current period vs. comparable prior period.",
+      formula: "Current active registered grid customers minus comparable prior-period active registered customers",
+      sourceInstitution: "Nigerian Electricity Regulatory Commission",
+      sourceDataset: "Monthly Metering Factsheet",
+      baseline: 0,
+      baselineLabel: "No prior-period baseline recorded yet",
+      target: null,
+      targetLabel: "Annual grid-connection target to be confirmed",
+      targetDate: "",
+    },
+    {
+      code: "mini-grid-connections",
+      name: "Active Mini-Grid Household Connections",
+      unit: "connections",
+      pillarSlug: "last-mile-access",
+      category: "Output",
+      definition: "Cumulative active household connections served by operational mini-grids.",
+      formula: "Cumulative active household connections under DARES",
+      sourceInstitution: "Rural Electrification Agency",
+      sourceDataset: "DARES Programme Records",
+      baseline: 0,
+      baselineLabel: "0 (2025 baseline)",
+      target: 750_000,
+      targetLabel: "750,000 household connections by 2030",
+      targetDate: "2030",
+    },
+    {
+      code: "solar-home-systems",
+      name: "Solar Home Systems Deployed",
+      unit: "systems",
+      pillarSlug: "last-mile-access",
+      category: "Output",
+      definition: "Cumulative eligible additional Solar Home Systems deployed since the approved baseline.",
+      formula: "Cumulative eligible Solar Home Systems deployed through approved programmes",
+      sourceInstitution: "Rural Electrification Agency",
+      sourceDataset: "DARES Programme Records",
+      baseline: 0,
+      baselineLabel: "0 (2025 baseline)",
+      target: 2_750_000,
+      targetLabel: "2.75 million additional systems by 2030",
+      targetDate: "2030",
+    },
+    {
+      code: "renewable-share",
+      name: "Renewable Generation Share",
+      unit: "%",
+      pillarSlug: "generation-network",
+      category: "Outcome",
+      definition: "Renewable electricity generated divided by total electricity generated.",
+      formula: "(Renewable generation / Total generation) x 100",
+      sourceInstitution: "Nigerian Independent System Operator",
+      sourceDataset: "Generation Mix Records",
+      baseline: 18,
+      baselineLabel: "18% (2025 baseline)",
+      target: 50,
+      targetLabel: "50% by 2030",
+      targetDate: "2030",
+    },
+    {
+      code: "metering-rate",
+      name: "National Metering Rate",
+      unit: "%",
+      pillarSlug: "financially-viable-utilities",
+      category: "Output",
+      definition: "Total metered active customers divided by total active registered customers.",
+      formula: "(Metered active customers / Active registered customers) x 100",
+      sourceInstitution: "Nigerian Electricity Regulatory Commission",
+      sourceDataset: "Monthly Metering Factsheet",
+      baseline: 52,
+      baselineLabel: "52% (2025 baseline)",
+      target: 100,
+      targetLabel: "100% by 2027",
+      targetDate: "2027",
+    },
+    {
+      code: "atcc-losses",
+      name: "Aggregate Technical, Commercial and Collection Loss Rate",
+      unit: "%",
+      pillarSlug: "financially-viable-utilities",
+      category: "Outcome",
+      definition: "Official Nigerian Electricity Regulatory Commission weighted national ATC&C loss rate.",
+      formula: "Weighted national ATC&C loss rate",
+      sourceInstitution: "Nigerian Electricity Regulatory Commission",
+      sourceDataset: "Quarterly Reports",
+      baseline: 45,
+      baselineLabel: "45% (2025 baseline)",
+      target: null,
+      targetLabel: "Compared against approved Multi-Year Tariff Order benchmarks",
+      targetDate: "",
+      direction: "LOWER_IS_BETTER",
+    },
+    {
+      code: "market-remittance",
+      name: "Market Remittance Performance",
+      unit: "%",
+      pillarSlug: "financially-viable-utilities",
+      category: "Output",
+      definition: "Actual remittance divided by the applicable remittance obligation.",
+      formula: "(Actual remittance / Applicable obligation) x 100",
+      sourceInstitution: "Nigerian Electricity Regulatory Commission",
+      sourceDataset: "Market Remittance Tables",
+      baseline: 60,
+      baselineLabel: "60% (2025 baseline)",
+      target: 100,
+      targetLabel: "100% remittance-obligation compliance",
+      targetDate: "",
+    },
+    {
+      code: "tariff-shortfall",
+      name: "Tariff Shortfall",
+      unit: "NGN billion",
+      pillarSlug: "financially-viable-utilities",
+      category: "Outcome",
+      definition: "Approved subsidy requirement minus subsidy funded or paid.",
+      formula: "Approved subsidy requirement - subsidy funded or paid",
+      sourceInstitution: "Federal Ministry of Finance",
+      sourceDataset: "Tariff Shortfall Tracker",
+      baseline: 2200,
+      baselineLabel: "NGN 2,200bn (2025 baseline)",
+      target: 0,
+      targetLabel: "Zero tariff shortfall by 2027",
+      targetDate: "2027",
+      direction: "LOWER_IS_BETTER",
+    },
+    {
+      code: "private-capital",
+      name: "Private Capital Mobilized",
+      unit: "USD million",
+      pillarSlug: "private-sector-participation",
+      category: "Output",
+      definition: "Cumulative eligible private capital mobilized for last-mile access from the January 2025 tracking baseline.",
+      formula: "Cumulative eligible private capital mobilized, excluding public funding and duplicate transactions",
+      sourceInstitution: "Federal Ministry of Finance",
+      sourceDataset: "Private Capital Tracker",
+      baseline: 0,
+      baselineLabel: "0 (January 2025 baseline)",
+      target: 15_500,
+      targetLabel: "USD 15.5 billion by 2030",
+      targetDate: "2030",
+    },
+  ];
+
+  for (const k of EXEC_OVERVIEW_KPIS) {
+    const pillar = pillarsBySlug.get(k.pillarSlug)!;
+    await prisma.kpiDefinition.upsert({
+      where: { code: k.code },
+      create: {
+        code: k.code,
+        name: k.name,
+        unit: k.unit,
+        pillarId: pillar.id,
+        category: k.category,
+        readiness: "CORE",
+        definition: k.definition,
+        formula: k.formula,
+        aggregation: "National total",
+        frequency: "Quarterly",
+        disaggregation: "By state and by Distribution Company",
+        limitations: "Executive Overview seed fixture - placeholder test data, not real Nigeria figures.",
+        sourceInstitution: k.sourceInstitution,
+        sourceDataset: k.sourceDataset,
+        sourceReference: "Executive Overview seed fixture",
+        baseline: k.baseline,
+        baselineLabel: k.baselineLabel,
+        target: k.target,
+        targetLabel: k.targetLabel,
+        targetDate: k.targetDate || null,
+        targetBasis: "LEVEL",
+        direction: k.direction ?? "HIGHER_IS_BETTER",
+      },
+      update: {},
+    });
+  }
+
   // One example Dataset/DatasetField/Obligation so the Data Submissions
   // module's read endpoints (GET .../datasets, .../obligations) have
   // something real to return - the manual-entry form definition is built
