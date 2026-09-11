@@ -381,15 +381,23 @@ model AuditLogEntry {
 
 // --- Branding ---------------------------------------------------------
 // Single-row table (id is always "default"). Read by everyone via the
-// public gateway/app shell; writable only by SYSTEM_ADMINISTRATOR.
-
+// public gateway/app shell; writable only by SYSTEM_ADMINISTRATOR. Shape
+// matches the real frontend contract exactly (src/api/schemas/branding.ts
+// in m300-frontend) - fonts/currency are stored as JSON since they're
+// nested objects there (per-heading-level font family, ISO currency triple).
 model BrandingSettings {
-  id        String   @id @default("default")
-  logoUrl   String?
-  primaryColor   String @default("#0B5FFF")
-  secondaryColor String @default("#111827")
-  fontFamily     String @default("Inter")
-  updatedAt DateTime @updatedAt
+  id             String   @id @default("default")
+  countryName    String   @default("Nigeria")
+  primaryColor   String   @default("#004972")
+  secondaryColor String   @default("#ffca05")
+  textColor      String   @default("#101828")
+  sidebarColor   String   @default("#004972")
+  logoUrl        String   @default("/Logos/geapp.png")
+  /// Shape: { h1, h2, h3, h4, h5, h6, body } - each a Google Fonts family name.
+  fonts          Json
+  /// Shape: { code, symbol, locale } - ISO 4217 code, display symbol, locale for digit grouping.
+  currency       Json
+  updatedAt      DateTime @updatedAt
 
   @@map("branding_settings")
 }

@@ -124,11 +124,10 @@ async function main() {
     update: {},
   });
 
-  await prisma.brandingSettings.upsert({
-    where: { id: "default" },
-    create: { id: "default" },
-    update: {},
-  });
+  // No branding seed here on purpose - BrandingService.get() lazily
+  // upserts the full default row (countryName/colors/fonts/currency) on
+  // its first call, so seeding a partial row here would just be a second,
+  // driftable copy of the same defaults.
 
   console.log("Seed complete. Login as admin@m300.local / provider@m300.local, password: ChangeMe123!");
 }

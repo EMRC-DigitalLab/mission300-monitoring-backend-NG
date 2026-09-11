@@ -41,3 +41,6 @@ prisma/*.db
 # misc
 tmp/
 *.tsbuildinfo
+
+# local file storage (STORAGE_DRIVER=local) - uploaded files, never source
+storage/

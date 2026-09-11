@@ -50,6 +50,19 @@ const fontFamily =
 // links (see auth.service.ts).
 const logoUrl = `${process.env.FRONTEND_URL ?? "http://localhost:5173"}/Logos/geapp.png`;
 
+// Same partner credit shown in the landing page's own footer (public-footer.tsx):
+// SEforALL and GEAPP as delivery partners on the left, EMRC credited alone as
+// platform builder on the right. SEforALL's mark is multi-colour by default
+// (only inverted to white in-app via a CSS filter for its navy footer - not
+// something an email can rely on), so it's used as-is here since this footer
+// stays light. GEAPP's file is the opposite problem - solid white with a
+// transparent background, invisible without a dark backdrop - so it gets a
+// small navy chip, the same fix the header gives the coat of arms in reverse.
+const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:5173";
+const seforallUrl = `${frontendBase}/seforall.svg`;
+const geappUrl = `${frontendBase}/reports/compact-progress/logo-geapp.png`;
+const emrcUrl = `${frontendBase}/emrc.png`;
+
 /** Escapes user-controlled strings before they're interpolated into HTML. */
 export function escapeHtml(value: string): string {
   return value
@@ -117,12 +130,46 @@ export function renderLayout(title: string, bodyHtml: string, preheader?: string
             </tr>
             <tr>
               <td style="background-color: ${token.surfaceSunken}; border-top: 1px solid ${token.borderDefault}; padding: 20px 32px;">
-                <p style="margin: 0 0 6px; font-family: ${fontFamily}; font-size: 12px; line-height: 1.5; color: ${token.textMuted};">
+                <p style="margin: 0 0 16px; font-family: ${fontFamily}; font-size: 12px; line-height: 1.5; color: ${token.textMuted};">
                   M300 Nigeria Energy Compact Dashboard — automated notification, please do not reply.
                 </p>
-                <p style="margin: 0; font-family: ${fontFamily}; font-size: 11px; line-height: 1.5; color: ${token.textMuted};">
-                  Delivery partners: SEforALL, GEAPP · Platform built by EMRC
-                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="left" style="vertical-align: middle;">
+                      <table role="presentation" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="vertical-align: middle;">
+                            <img src="${seforallUrl}" alt="SEforALL" width="26" style="display: block; width: 26px; height: auto; border: 0;" />
+                          </td>
+                          <td style="width: 7px; font-size: 0; line-height: 0;">&nbsp;</td>
+                          <td style="width: 1px; background-color: ${token.borderDefault}; font-size: 0; line-height: 0;">&nbsp;</td>
+                          <td style="width: 7px; font-size: 0; line-height: 0;">&nbsp;</td>
+                          <td style="vertical-align: middle;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" style="background-color: ${token.brand600}; border-radius: 3px;">
+                              <tr>
+                                <td style="padding: 3px 4px;">
+                                  <img src="${geappUrl}" alt="GEAPP" width="20" style="display: block; width: 20px; height: auto; border: 0;" />
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                    <td align="right" style="vertical-align: middle;">
+                      <table role="presentation" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="vertical-align: middle; padding-right: 5px;">
+                            <img src="${emrcUrl}" alt="EMRC" width="16" style="display: block; width: 16px; height: auto; border: 0;" />
+                          </td>
+                          <td style="vertical-align: middle; font-family: ${fontFamily}; font-size: 9px; color: ${token.textMuted}; white-space: nowrap;">
+                            Platform built by EMRC
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
           </table>
