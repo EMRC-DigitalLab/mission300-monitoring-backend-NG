@@ -42,7 +42,7 @@ export class DataSubmissionsController {
   }
 
   @Get("gaps")
-  getGaps() {
-    return this.dataSubmissions.getGaps();
+  getGaps(@Query() query: DataSubmissionsQueryDto) {
+    return this.dataSubmissions.getGaps(query);
   }
 }

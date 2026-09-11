@@ -26,7 +26,12 @@ function buildTemplate(dataset: Pick<Dataset, "id" | "templateFileName" | "templ
   };
 }
 
-/** Matches the Dataset shape in m300-frontend/src/api/schemas/data-submissions/datasets.ts exactly. */
+/**
+ * Matches the Dataset shape in m300-frontend/src/api/schemas/data-
+ * submissions/datasets.ts exactly - ownerInstitution is z.string().min(1)
+ * there with no default, so "" (a null FK) would be a real contract
+ * violation, not just an odd display value.
+ */
 export function toDatasetView(dataset: DatasetWithRelations) {
   return {
     id: dataset.id,
@@ -35,7 +40,7 @@ export function toDatasetView(dataset: DatasetWithRelations) {
     pillar: dataset.pillar.slug,
     requiredDataPoints: dataset.requiredDataPoints,
     frequency: dataset.frequency,
-    ownerInstitution: dataset.ownerInstitution?.name ?? "",
+    ownerInstitution: dataset.ownerInstitution?.name ?? "Unassigned",
     template: buildTemplate(dataset),
   };
 }
@@ -107,14 +112,20 @@ type SubmissionWithRelations = Submission & {
   obligation: (Obligation & { dataset: Dataset }) | null;
 };
 
-/** Matches SubmissionListItem exactly (m300-frontend/src/api/schemas/data-submissions/submissions.ts). */
+/**
+ * Matches SubmissionListItem exactly (m300-frontend/src/api/schemas/data-
+ * submissions/submissions.ts). dataset/reportingPeriod/validationSummary
+ * are all z.string().min(1) there - an empty string is a real contract
+ * violation, not just an odd display value, so every fallback here must
+ * be non-empty text, never "".
+ */
 export function toSubmissionListItem(submission: SubmissionWithRelations) {
   const submitted = submission.status !== "DRAFT";
   return {
     id: submission.id,
     institution: submission.institution.name,
-    dataset: submission.obligation?.dataset.name ?? "",
-    reportingPeriod: submission.obligation?.reportingPeriod ?? "",
+    dataset: submission.obligation?.dataset.name ?? "Unlinked submission",
+    reportingPeriod: submission.obligation?.reportingPeriod ?? "Unknown period",
     method: METHOD_CODE[submission.method] ?? submission.method,
     methodLabel: METHOD_LABEL[submission.method] ?? submission.method,
     version: submission.version,
@@ -123,9 +134,9 @@ export function toSubmissionListItem(submission: SubmissionWithRelations) {
     submittedAtLabel: submitted ? formatAgeLabel(submission.createdAt) : "Not yet submitted",
     status: submissionWorkflowStatus(submission.status),
     // Real validation-issue tracking is Phase 3 (validation queue/detail) -
-    // left blank here rather than inventing a number this endpoint can't
-    // actually back yet.
-    validationSummary: "",
+    // honest placeholder text rather than a number this endpoint can't
+    // actually back yet, but never "" (the schema requires min 1 char).
+    validationSummary: "No validation issues recorded yet.",
     availableActions:
       submission.status === "PENDING" || submission.status === "UNDER_REVIEW" ? ["review"] : ["view"],
   };

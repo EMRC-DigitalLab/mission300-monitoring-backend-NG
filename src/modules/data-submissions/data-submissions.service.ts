@@ -181,16 +181,20 @@ export class DataSubmissionsService {
   /**
    * Simplest defensible definition given what's actually computable today
    * (see toDataGap()'s comment): a KPI that has never had a single
-   * approved value published for it. Not paginated in the mock's own
-   * shape either (dataGapListSchema is a plain array) - kept that way here.
+   * approved value published for it. dataGapListSchema in the real
+   * contract IS the paginated envelope (verified directly against
+   * m300-frontend/src/api/schemas/data-submissions/compliance.ts - it
+   * wraps pageOf(dataGapSchema) in a z.preprocess, easy to misread as a
+   * plain array from the shape alone), not a bare array.
    */
-  async getGaps() {
+  async getGaps(query: DataSubmissionsQueryDto) {
+    const pageSize = Math.min(100, query.pageSize ?? DEFAULT_PAGE_SIZE);
     const kpis = await this.prisma.kpiDefinition.findMany({
       where: { isActive: true, values: { none: {} } },
       include: { pillar: true },
       orderBy: { name: "asc" },
     });
-    return kpis.map(toDataGap);
+    return paginate(kpis.map(toDataGap), query.page ?? 1, pageSize);
   }
 }
 
