@@ -73,6 +73,8 @@ model Institution {
   users         User[]
   submissions   Submission[]
   dataCustodians DataCustodian[]
+  ownedDatasets Dataset[]       @relation("DatasetOwner")
+  obligations   Obligation[]
 
   @@map("institutions")
 }
@@ -104,6 +106,7 @@ model User {
   webhookSubscriptions WebhookSubscription[]
   passwordResetTokens  PasswordResetToken[]
   scopeAssignments     ScopeAssignment[]
+  focalForObligations  Obligation[]
 
   @@index([institutionId])
   @@map("users")
@@ -194,9 +197,15 @@ model DataCustodian {
 model Pillar {
   id          String   @id @default(cuid())
   name        String   @unique
+  /// Matches pillarIdSchema in m300-frontend/src/api/schemas/common.ts
+  /// exactly (one of 6 fixed kebab-case codes, e.g. "generation-network") -
+  /// kept as its own column rather than repurposing `id` so existing FKs
+  /// (KpiDefinition.pillarId etc.) don't need to change.
+  slug        String   @unique
   description String?
 
   kpis        KpiDefinition[]
+  datasets    Dataset[]
 
   @@map("pillars")
 }
@@ -214,6 +223,7 @@ model KpiDefinition {
 
   values      KpiValue[]
   submissionItems SubmissionItem[]
+  datasetFields   DatasetField[]
 
   @@index([pillarId])
   @@map("kpi_definitions")
@@ -236,6 +246,108 @@ model KpiValue {
 
   @@index([kpiDefinitionId, period])
   @@map("kpi_values")
+}
+
+// --- Data Submissions & Validation ---------------------------------------
+// Ground truth: m300-frontend's src/api/schemas/data-submissions/*.ts and
+// src/mocks/data/data-submissions/*.ts. A submission is never freeform -
+// it always exists against an Obligation (institution x dataset x
+// reporting period, known in advance, with a due date). Fulfilling an
+// obligation (an accepted submission) removes it from the outstanding
+// obligations list - see obligation-status computation in
+// data-submissions.mappers.ts, not a stored column here.
+
+// What an institution can be asked to report - the record behind
+// Obligation.dataset and the manual-entry form's field definitions.
+model Dataset {
+  id                 String   @id @default(cuid())
+  name               String
+  purpose            String
+  pillarId           String
+  pillar             Pillar   @relation(fields: [pillarId], references: [id])
+  requiredDataPoints String[]
+  frequency          String // e.g. "Quarterly" - free text, matches the real contract exactly
+  ownerInstitutionId String?
+  ownerInstitution   Institution? @relation("DatasetOwner", fields: [ownerInstitutionId], references: [id])
+  // Used to build the template download URL (GET /data-submissions/templates/:fileName)
+  // and the upload form's accepted-file-types display - the real contract
+  // generates the XLSX fresh per request from these field definitions,
+  // it is not a stored file.
+  templateFileName   String
+  templateVersion    Int      @default(1)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fields             DatasetField[]
+  obligations        Obligation[]
+
+  @@index([pillarId])
+  @@map("datasets")
+}
+
+enum DatasetFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  TEXTAREA
+}
+
+// One field of a dataset's manual-entry form - what makes that form
+// "entirely server-driven" per the real contract (manualEntryDefinitionSchema).
+model DatasetField {
+  id              String           @id @default(cuid())
+  datasetId       String
+  dataset         Dataset          @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  sectionId       String // groups fields into entrySections for the manual-entry form
+  sectionTitle    String
+  label           String
+  helpText        String?
+  type            DatasetFieldType
+  required        Boolean          @default(true)
+  unit            String?
+  order           Int              @default(0)
+  // [{ value, label }] for SELECT fields - matches entryFieldSchema.options exactly
+  options         Json?
+  // Which KPI this field's value ultimately feeds (nullable - some fields
+  // are descriptive only, e.g. sourceReference-adjacent notes).
+  kpiDefinitionId String?
+  kpiDefinition   KpiDefinition?   @relation(fields: [kpiDefinitionId], references: [id])
+
+  @@index([datasetId])
+  @@map("dataset_fields")
+}
+
+// The "what's owed, by when" record - institution x dataset x reporting
+// period. Read-heavy: status/availableActions are computed at read time
+// from the linked submission's state, not stored (same pattern as
+// BrandingSettings/administration summary cards elsewhere in this schema).
+model Obligation {
+  id                   String       @id @default(cuid())
+  institutionId        String
+  institution          Institution  @relation(fields: [institutionId], references: [id])
+  datasetId            String
+  dataset              Dataset      @relation(fields: [datasetId], references: [id])
+  reportingPeriod      String // e.g. "Q3 2025" - free text, matches the real contract
+  dueDate              DateTime
+  focalPersonId        String?
+  focalPerson          User?        @relation(fields: [focalPersonId], references: [id])
+  // Set only once a submission against this obligation is approved or
+  // provisionally approved - see toObligationView() in
+  // data-submissions.mappers.ts for the "removed from the outstanding
+  // list once fulfilled" behavior this drives.
+  acceptedSubmissionId String?      @unique
+  acceptedSubmission   Submission?  @relation("AcceptedSubmission", fields: [acceptedSubmissionId], references: [id])
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  submissions          Submission[] @relation("ObligationSubmissions")
+
+  @@unique([institutionId, datasetId, reportingPeriod])
+  @@index([institutionId])
+  @@index([datasetId])
+  @@map("obligations")
 }
 
 // --- Submissions: draft -> pending -> under_review -> decision ----------
@@ -268,13 +380,24 @@ model Submission {
   previousVersion   Submission?    @relation("SubmissionVersions", fields: [previousVersionId], references: [id])
   nextVersion       Submission?    @relation("SubmissionVersions")
   sourceFileUrl  String?
+  // Nullable for now - populated once the real create/upload flow (Phase 2
+  // of the Data Submissions rebuild) replaces the old direct-create path,
+  // which has no obligation concept at all.
+  obligationId   String?
+  obligation     Obligation?       @relation("ObligationSubmissions", fields: [obligationId], references: [id])
+  // Set by the real upload/entry flow - matches manualEntryRequestSchema/
+  // the upload endpoint's multipart fields exactly.
+  sourceReference String?
+  notes          String?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
   items          SubmissionItem[]
   reviewDecisions ReviewDecision[]
+  acceptedForObligation Obligation? @relation("AcceptedSubmission")
 
   @@index([institutionId, status])
+  @@index([obligationId])
   @@map("submissions")
 }
 

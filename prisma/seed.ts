@@ -132,19 +132,91 @@ async function main() {
     update: {},
   });
 
-  const pillar = await prisma.pillar.upsert({
-    where: { name: "Access Expansion" },
-    create: { name: "Access Expansion", description: "Electricity access delivery" },
-    update: {},
-  });
+  // Matches pillarIdSchema in m300-frontend/src/api/schemas/common.ts
+  // exactly - all 6, not just the one the old seed had ("Access Expansion",
+  // which matched none of the real slugs).
+  const PILLARS: { slug: string; name: string }[] = [
+    { slug: "generation-network", name: "Generation & network" },
+    { slug: "last-mile-access", name: "Last-mile access" },
+    { slug: "financially-viable-utilities", name: "Financially Viable Utilities" },
+    { slug: "private-sector-participation", name: "Private sector" },
+    { slug: "regional-integration", name: "Regional integration" },
+    { slug: "clean-cooking", name: "Clean cooking" },
+  ];
+  const pillarsBySlug = new Map<string, Awaited<ReturnType<typeof prisma.pillar.upsert>>>();
+  for (const p of PILLARS) {
+    const row = await prisma.pillar.upsert({
+      where: { slug: p.slug },
+      create: p,
+      update: { name: p.name },
+    });
+    pillarsBySlug.set(p.slug, row);
+  }
+  const lastMileAccess = pillarsBySlug.get("last-mile-access")!;
 
-  await prisma.kpiDefinition.upsert({
+  const accessRateKpi = await prisma.kpiDefinition.upsert({
     where: { code: "access-rate-national" },
     create: {
       code: "access-rate-national",
       name: "National Electricity Access Rate",
       unit: "%",
-      pillarId: pillar.id,
+      pillarId: lastMileAccess.id,
+    },
+    update: {},
+  });
+
+  // One example Dataset/DatasetField/Obligation so the Data Submissions
+  // module's read endpoints (GET .../datasets, .../obligations) have
+  // something real to return - the manual-entry form definition is built
+  // directly from these DatasetField rows.
+  const accessDataset = await prisma.dataset.upsert({
+    where: { id: "seed-dataset-access-expansion" },
+    create: {
+      id: "seed-dataset-access-expansion",
+      name: "Quarterly Electricity Access Expansion",
+      purpose: "Tracks new household electricity connections by DisCo each quarter.",
+      pillarId: lastMileAccess.id,
+      requiredDataPoints: ["New connections", "Total connected households", "Access rate (%)"],
+      frequency: "Quarterly",
+      ownerInstitutionId: institution.id,
+      templateFileName: "quarterly-access-expansion.xlsx",
+      templateVersion: 1,
+    },
+    update: {},
+  });
+
+  await prisma.datasetField.upsert({
+    where: { id: "seed-field-access-rate" },
+    create: {
+      id: "seed-field-access-rate",
+      datasetId: accessDataset.id,
+      sectionId: "connections",
+      sectionTitle: "Connections",
+      label: "National Electricity Access Rate",
+      helpText: "Percentage of households with a grid connection as of period end.",
+      type: "NUMBER",
+      required: true,
+      unit: "%",
+      order: 1,
+      kpiDefinitionId: accessRateKpi.id,
+    },
+    update: {},
+  });
+
+  await prisma.obligation.upsert({
+    where: {
+      institutionId_datasetId_reportingPeriod: {
+        institutionId: institution.id,
+        datasetId: accessDataset.id,
+        reportingPeriod: "Q3 2025",
+      },
+    },
+    create: {
+      institutionId: institution.id,
+      datasetId: accessDataset.id,
+      reportingPeriod: "Q3 2025",
+      dueDate: new Date("2025-10-15T00:00:00Z"),
+      focalPersonId: provider.id,
     },
     update: {},
   });
