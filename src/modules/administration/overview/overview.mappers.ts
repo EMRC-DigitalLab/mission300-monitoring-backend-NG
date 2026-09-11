@@ -90,6 +90,7 @@ export const ACTION_META: Record<string, { label: string; module: string }> = {
   "branding.logo_updated": { label: "Updated site logo", module: MODULE_LABELS.administration },
   "user.invited": { label: "Invited a user", module: MODULE_LABELS.administration },
   "user.status_changed": { label: "Changed account status", module: MODULE_LABELS.administration },
+  "user.profile_updated": { label: "Updated own profile", module: MODULE_LABELS.administration },
   "bottleneck.created": {
     label: "Logged a bottleneck",
     module: MODULE_LABELS["implementation-register"],
