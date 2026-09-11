@@ -12,6 +12,7 @@ import {
   type EmailBrand,
 } from "@/notifications/email/templates";
 import { BrandingService } from "@/modules/administration/branding/branding.service";
+import { REPORT_TYPE_LABELS } from "@/modules/reports/reports.mappers";
 
 /**
  * Single subscriber for every notification-worthy domain event, fanning
@@ -155,13 +156,16 @@ export class NotificationsConsumer implements OnModuleInit {
   }
 
   private async notifyReportReady({ reportId }: { reportId: string }) {
-    const report = await this.prisma.report.findUnique({
+    const report = await this.prisma.savedReport.findUnique({
       where: { id: reportId },
       include: { requestedBy: true },
     });
     if (!report) return;
 
-    const { subject, html } = reportReadyEmail({ reportType: report.type }, await this.getEmailBrand());
+    const { subject, html } = reportReadyEmail(
+      { reportType: REPORT_TYPE_LABELS[report.reportType] },
+      await this.getEmailBrand(),
+    );
     await this.email.send({ to: report.requestedBy.email, subject, html });
   }
 }

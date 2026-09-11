@@ -104,7 +104,7 @@ model User {
   submissions      Submission[]      @relation("SubmittedBy")
   reviewDecisions  ReviewDecision[]  @relation("ReviewedBy")
   auditLogEntries  AuditLogEntry[]
-  reports          Report[]
+  savedReports     SavedReport[]
   uploadedFiles    UploadedFile[]
   webhookSubscriptions WebhookSubscription[]
   passwordResetTokens  PasswordResetToken[]
@@ -872,36 +872,64 @@ model Escalation {
 
 // --- Reports --------------------------------------------------------------
 
-enum ReportStatus {
-  QUEUED
-  GENERATING
-  READY
-  FAILED
-}
-
 enum ReportFormat {
   PDF
   XLSX
 }
 
-// Generation is async (RabbitMQ worker) - a row is created as QUEUED
-// immediately so the UI can show it in history, then updated to READY with
-// a fileUrl once the worker finishes. See events/consumers for the worker.
-model Report {
-  id            String       @id @default(cuid())
-  requestedById String
-  requestedBy   User         @relation(fields: [requestedById], references: [id])
-  type          String // e.g. "pillar-summary", "compact-export"
-  format        ReportFormat
-  filters       Json
-  status        ReportStatus @default(QUEUED)
-  fileUrl       String?
-  failureReason String?
-  createdAt     DateTime     @default(now())
-  completedAt   DateTime?
+// Matches reportTypeSchema exactly (m300-frontend/src/api/schemas/
+// reports.ts). `category` is deliberately NOT a column here - it's a fixed
+// derived mapping from reportType (REPORT_TYPE_CATEGORY in the real
+// schema), computed at read time in reports.mappers.ts rather than stored
+// redundantly.
+enum ReportType {
+  COMPACT_PROGRESS
+  COMPACT_REVIEW
+  PILLAR_PERFORMANCE
+  KPI_INDICATOR
+  STATE_DISCO
+  IMPLEMENTATION
+  BOTTLENECK
+  FINANCIAL
+  SUBMISSION_COMPLIANCE
+  DATA_QUALITY
+}
+
+// Real contract: reports never generate an actual PDF/XLSX file server-side
+// - the frontend mock's own handler comment says so explicitly ("The actual
+// PDF/Excel file is produced client-side from the returned preview, not by
+// this endpoint"). POST /reports/generate returns the same {metadata,
+// sections} preview data as POST /reports/preview, synchronously - no
+// queue, no ReportStatus, no worker - and additionally persists this row.
+// Regenerating the exact same config (see reports.service.ts's
+// configSignature()) increments `version` on the existing row rather than
+// creating a new one, matching the real mock's own createSavedReport().
+model SavedReport {
+  id                     String       @id @default(cuid())
+  requestedById          String
+  requestedBy            User         @relation(fields: [requestedById], references: [id])
+  reportType             ReportType
+  title                  String
+  filtersSummary         String
+  validationStatusLabel  String
+  version                Int          @default(1)
+  format                 ReportFormat
+  fileReference          String
+  /// Identifies "the same report configuration" for the version-increment
+  /// rule above - a stable JSON serialization of config, excluding format
+  /// (switching PDF<->XLSX is still "the same report regenerated", per the
+  /// real mock's own configSignature() comment).
+  configSignature        String
+  /// The full ReportConfig that produced this report - stored so it can be
+  /// re-run exactly (e.g. from a "regenerate" action) without the caller
+  /// re-supplying every filter.
+  config                 Json
+  createdAt              DateTime     @default(now())
+  lastGeneratedAt        DateTime     @default(now())
 
   @@index([requestedById])
-  @@map("reports")
+  @@index([configSignature])
+  @@map("saved_reports")
 }
 
 // --- Audit log ------------------------------------------------------------
