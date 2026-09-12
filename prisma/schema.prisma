@@ -1100,9 +1100,16 @@ model DiscoPerformanceRecord {
   remittanceObligationNgn Decimal
   remittanceActualNgn     Decimal
   /// The applicable Multi-Year Tariff Order / Performance Improvement Plan
-  /// allowed loss-rate benchmark for this DisCo and period.
-  allowedLossRatePercent  Decimal
+  /// allowed loss-rate benchmark for this DisCo and period. Null until
+  /// entered separately - it's a regulator-approved target from the DisCo's
+  /// own MYTO order, not something derivable from energy received/billed
+  /// (those give the ACTUAL loss rate, atccLossRatePercent below).
+  allowedLossRatePercent  Decimal?
   atccLossRatePercent     Decimal
+  /// Where this record's figures came from - e.g. the compiled NERC
+  /// workbook this was bulk-ingested from. Null for a row entered directly
+  /// through the admin screen with no source file.
+  evidenceUrl             String?
   validationStatus        ValidationStatus @default(PROVISIONAL)
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt

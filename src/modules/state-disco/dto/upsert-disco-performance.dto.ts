@@ -47,9 +47,13 @@ export class UpsertDiscoPerformanceDto {
   @Min(0)
   remittanceActualNgn!: number;
 
+  // Optional - a regulator-approved MYTO benchmark entered separately from
+  // whoever holds the actual tariff order figures, not derivable from this
+  // record's own energy/revenue fields.
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  allowedLossRatePercent!: number;
+  allowedLossRatePercent?: number;
 
   @IsNumber()
   @Min(0)

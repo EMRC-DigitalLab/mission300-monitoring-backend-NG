@@ -4,6 +4,7 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import {
   formatPercent,
+  periodSortKey,
   ratio,
   toDeliveryRow,
   toDiscoComparisonRowBase,
@@ -39,7 +40,9 @@ export class StateDiscoService {
     return {
       reportingPeriods: withAll(
         "periods",
-        [...new Set(periodRows.map((p) => p.period))].sort().map((p) => ({ value: p, label: p })),
+        [...new Set(periodRows.map((p) => p.period))]
+          .sort((a, b) => periodSortKey(a) - periodSortKey(b))
+          .map((p) => ({ value: p, label: p })),
       ),
       // Not measured data - the page's own View toggle between the DisCo-
       // led default and the State view (docs/specs/state-disco-
@@ -99,8 +102,11 @@ export class StateDiscoService {
   private async getLatestRecordPerDisco() {
     const records = await this.prisma.discoPerformanceRecord.findMany({
       include: { institution: true },
-      orderBy: { createdAt: "desc" },
     });
+    // "Latest" means chronologically latest period, not most recently
+    // written row - a bulk historical backfill can insert an old quarter
+    // after a newer one, so createdAt order doesn't track period order.
+    records.sort((a, b) => periodSortKey(b.period) - periodSortKey(a.period));
     const latest = new Map<string, (typeof records)[number]>();
     for (const record of records) {
       if (!latest.has(record.institutionId)) latest.set(record.institutionId, record);
@@ -109,11 +115,12 @@ export class StateDiscoService {
   }
 
   private async getRecordsForDisco(institutionId: string) {
-    return this.prisma.discoPerformanceRecord.findMany({
+    const records = await this.prisma.discoPerformanceRecord.findMany({
       where: { institutionId },
       include: { institution: true },
-      orderBy: { createdAt: "desc" },
     });
+    records.sort((a, b) => periodSortKey(b.period) - periodSortKey(a.period));
+    return records;
   }
 
   async getOverview(query: StateDiscoQueryDto) {
@@ -131,14 +138,14 @@ export class StateDiscoService {
       remittanceObligationNgn: number;
       remittanceActualNgn: number;
       atccLossRatePercent: number;
-      allowedLossRatePercent: number;
+      allowedLossRatePercent: number | null;
     };
     let previous: typeof current | null = null;
 
     if (selection === "national") {
       const latestPerDisco = await this.getLatestRecordPerDisco();
       selectedLabel = "National (all DisCos)";
-      current = latestPerDisco.reduce(
+      const totals = latestPerDisco.reduce(
         (acc, r) => ({
           activeCustomers: acc.activeCustomers + r.activeCustomers,
           meteredCustomers: acc.meteredCustomers + r.meteredCustomers,
@@ -149,7 +156,13 @@ export class StateDiscoService {
           remittanceObligationNgn: acc.remittanceObligationNgn + Number(r.remittanceObligationNgn),
           remittanceActualNgn: acc.remittanceActualNgn + Number(r.remittanceActualNgn),
           atccLossRatePercent: acc.atccLossRatePercent + Number(r.atccLossRatePercent),
-          allowedLossRatePercent: acc.allowedLossRatePercent + Number(r.allowedLossRatePercent),
+          // Sum and count only over DisCos that actually have an allowed
+          // benchmark entered - averaging in a 0 for a DisCo with no
+          // benchmark yet would silently understate the national figure.
+          allowedLossRateSum:
+            acc.allowedLossRateSum +
+            (r.allowedLossRatePercent === null ? 0 : Number(r.allowedLossRatePercent)),
+          allowedLossRateCount: acc.allowedLossRateCount + (r.allowedLossRatePercent === null ? 0 : 1),
         }),
         {
           activeCustomers: 0,
@@ -161,12 +174,17 @@ export class StateDiscoService {
           remittanceObligationNgn: 0,
           remittanceActualNgn: 0,
           atccLossRatePercent: 0,
-          allowedLossRatePercent: 0,
+          allowedLossRateSum: 0,
+          allowedLossRateCount: 0,
         },
       );
+      const { allowedLossRateSum, allowedLossRateCount, ...rest } = totals;
+      current = {
+        ...rest,
+        allowedLossRatePercent: allowedLossRateCount > 0 ? allowedLossRateSum / allowedLossRateCount : null,
+      };
       if (latestPerDisco.length > 0) {
         current.atccLossRatePercent /= latestPerDisco.length;
-        current.allowedLossRatePercent /= latestPerDisco.length;
       }
       // No real period-aligned multi-institution history is tracked yet to
       // diff a national aggregate against a prior cycle - honest zero
@@ -189,7 +207,7 @@ export class StateDiscoService {
           remittanceObligationNgn: 0,
           remittanceActualNgn: 0,
           atccLossRatePercent: 0,
-          allowedLossRatePercent: 0,
+          allowedLossRatePercent: null,
         };
       } else {
         const r = records[0];
@@ -203,7 +221,7 @@ export class StateDiscoService {
           remittanceObligationNgn: Number(r.remittanceObligationNgn),
           remittanceActualNgn: Number(r.remittanceActualNgn),
           atccLossRatePercent: Number(r.atccLossRatePercent),
-          allowedLossRatePercent: Number(r.allowedLossRatePercent),
+          allowedLossRatePercent: r.allowedLossRatePercent === null ? null : Number(r.allowedLossRatePercent),
         };
         if (records.length > 1) {
           const p = records[1];
@@ -217,7 +235,8 @@ export class StateDiscoService {
             remittanceObligationNgn: Number(p.remittanceObligationNgn),
             remittanceActualNgn: Number(p.remittanceActualNgn),
             atccLossRatePercent: Number(p.atccLossRatePercent),
-            allowedLossRatePercent: Number(p.allowedLossRatePercent),
+            allowedLossRatePercent:
+              p.allowedLossRatePercent === null ? null : Number(p.allowedLossRatePercent),
           };
         }
       }
@@ -274,9 +293,18 @@ export class StateDiscoService {
         id: "atcc-losses",
         title: "Aggregate Technical, Commercial and Collection loss rate",
         value: formatPercent(current.atccLossRatePercent),
-        supportingLabel: `Allowed benchmark ${formatPercent(current.allowedLossRatePercent)}`,
-        benchmarkLabel: `Allowed: ${formatPercent(current.allowedLossRatePercent)}`,
-        varianceLabel: `${(current.atccLossRatePercent - current.allowedLossRatePercent).toFixed(1)} pts vs allowed loss`,
+        supportingLabel:
+          current.allowedLossRatePercent === null
+            ? "Allowed benchmark not yet available"
+            : `Allowed benchmark ${formatPercent(current.allowedLossRatePercent)}`,
+        benchmarkLabel:
+          current.allowedLossRatePercent === null
+            ? "Allowed: not yet available"
+            : `Allowed: ${formatPercent(current.allowedLossRatePercent)}`,
+        varianceLabel:
+          current.allowedLossRatePercent === null
+            ? "No variance available - allowed loss rate not yet entered"
+            : `${(current.atccLossRatePercent - current.allowedLossRatePercent).toFixed(1)} pts vs allowed loss`,
         progressPercent: Math.max(0, Math.min(100, Math.round(100 - current.atccLossRatePercent))),
         trend: trendFor(current.atccLossRatePercent, previous?.atccLossRatePercent, "lower-is-better"),
         provenance: provenance(

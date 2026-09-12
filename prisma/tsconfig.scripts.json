@@ -6,5 +6,5 @@
     "noEmit": false,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["ingest-kpi-directory.ts"]
+  "include": ["ingest-kpi-directory.ts", "ingest-nerc-disco-data.ts"]
 }

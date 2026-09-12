@@ -20,6 +20,22 @@ function toNumber(value: unknown): number {
   return value === null || value === undefined ? 0 : Number(value);
 }
 
+/**
+ * Chronological sort key for a "q{1-4}-{year}" period string (e.g.
+ * "q3-2025") - plain alphabetical sort groups by quarter number first and
+ * year second ("q2-2020" sorts after "q1-2021", which is backwards), so
+ * anywhere periods need ordering by actual time (latest-per-DisCo,
+ * previous-period trends) must sort by this instead. Unparseable periods
+ * sort first (oldest), never crash a comparator.
+ */
+export function periodSortKey(period: string): number {
+  const match = /^q([1-4])-(\d{4})$/.exec(period);
+  if (!match) return -Infinity;
+  const quarter = Number(match[1]);
+  const year = Number(match[2]);
+  return year * 4 + quarter;
+}
+
 const numberFormatter = new Intl.NumberFormat("en-US");
 const decimalFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 

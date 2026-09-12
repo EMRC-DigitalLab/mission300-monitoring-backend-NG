@@ -707,6 +707,11 @@ async function main() {
     "Kano Electricity Distribution Company",
     "Port Harcourt Electricity Distribution Company",
     "Yola Electricity Distribution Company",
+    // Not one of the 11 standard privatization-era DisCos - a separate,
+    // newer independent distribution franchise for Aba and its metro area
+    // (Abia State). Matches the id scheme ingest-nerc-disco-data.ts uses
+    // for the same institution, so both converge on one row.
+    "Aba Power Limited",
   ];
   const discosByName = new Map<string, Awaited<ReturnType<typeof prisma.institution.upsert>>>();
   for (const name of DISCOS) {
