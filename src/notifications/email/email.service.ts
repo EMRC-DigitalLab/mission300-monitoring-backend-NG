@@ -23,7 +23,7 @@ export class EmailService {
   constructor(private readonly config: ConfigService) {
     const apiKey = this.config.get<string>("RESEND_API_KEY");
     this.resend = apiKey ? new Resend(apiKey) : null;
-    this.from = this.config.get<string>("EMAIL_FROM", "notifications@m300.energymrc.ng");
+    this.from = this.config.get<string>("EMAIL_FROM", "notifications@raven-emrc.com");
 
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set - emails will be logged, not sent");

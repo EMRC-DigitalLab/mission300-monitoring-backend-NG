@@ -25,11 +25,13 @@ export const envSchema = z.object({
   // missing third-party key in local dev. Webhook signing needs no env var
   // of its own - each subscription gets its own HMAC secret at creation.
   RESEND_API_KEY: z.string().optional(),
-  // TODO: this domain must be verified in the Resend account before sends
-  // will actually work - confirm/replace once the real production domain
-  // is settled, and set EMAIL_FROM as a real env var/secret rather than
-  // relying on this default at that point.
-  EMAIL_FROM: z.string().default("M300 Compact Dashboard <notifications@m300.energymrc.ng>"),
+  // raven-emrc.com, not the frontend's m300.energymrc.ng - confirmed live
+  // against the Resend dashboard that only raven-emrc.com (and an
+  // unrelated koraerp.com) are verified sending domains on this account.
+  // m300.energymrc.ng is the frontend's own domain (CORS_ORIGIN/
+  // FRONTEND_URL) and was never verified for sending - every send to it
+  // failed with a 403 from Resend until this changed.
+  EMAIL_FROM: z.string().default("M300 Compact Dashboard <notifications@raven-emrc.com>"),
 
   // Base URL of the frontend - used only to build set-password/reset-password
   // links in emails (e.g. `${FRONTEND_URL}/account/set-password?token=...`),
