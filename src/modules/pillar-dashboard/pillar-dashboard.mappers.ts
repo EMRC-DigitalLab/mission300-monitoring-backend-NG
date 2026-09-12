@@ -23,42 +23,23 @@ export const PILLAR_LABELS: Record<string, string> = {
 
 /**
  * The four real KPI Matrix indicators used as each pillar's headline cards -
- * matches the frontend mock's own PILLAR_KPI_IDS constant in spirit (a
- * fixed, curated 4-KPI selection per pillar), using this backend's own real
- * seeded KPI codes rather than Nigeria's specific M300-Pxx-xxx ids.
+ * matches the real frontend mock's own PILLAR_KPI_IDS constant exactly
+ * (mocks/data/pillar-dashboard.ts), using the real Nigeria M300-Pxx-xxx ids
+ * now that the real KPI directory (prisma/data/kpi-directory.json) is
+ * ingested - this used to point at invented placeholder codes from before
+ * that directory existed.
  */
 export const PILLAR_HEADLINE_KPI_CODES: Record<string, readonly [string, string, string, string]> = {
-  "generation-network": [
-    "generation-capacity-available",
-    "renewable-share",
-    "transmission-wheeling-capacity",
-    "grid-reliability-index",
-  ],
-  "last-mile-access": [
-    "access-rate-national",
-    "grid-connections",
-    "mini-grid-connections",
-    "solar-home-systems",
-  ],
-  "financially-viable-utilities": ["metering-rate", "atcc-losses", "market-remittance", "tariff-shortfall"],
-  "private-sector-participation": [
-    "private-capital",
-    "ppp-projects-financially-closed",
-    "private-sector-jobs-created",
-    "investment-facilitation-index",
-  ],
-  "regional-integration": [
-    "cross-border-trade-volume",
-    "regional-interconnection-capacity",
-    "wapp-technical-compliance-rate",
-    "regional-market-participation-milestones",
-  ],
-  "clean-cooking": [
-    "clean-cooking-access",
-    "improved-cookstoves-distributed",
-    "lpg-cylinder-penetration-rate",
-    "clean-cooking-institutions-engaged",
-  ],
+  // M300-P1-003 ("Available (Dispatched) Generation Capacity") swapped out
+  // for M300-P1-016 ("Available Generation Capacity") per the real mock's
+  // own comment - M300-P1-003 stays in the catalogue as a supporting
+  // indicator, not deleted.
+  "generation-network": ["M300-P1-016", "M300-P1-005", "M300-P1-004", "M300-P1-012"],
+  "last-mile-access": ["M300-PX-001", "M300-P2-001", "M300-P2-003", "M300-P2-006"],
+  "financially-viable-utilities": ["M300-P3-004", "M300-P3-006", "M300-P3-009", "M300-P3-010"],
+  "private-sector-participation": ["M300-P4-002", "M300-P4-003", "M300-P4-001", "M300-P4-006"],
+  "regional-integration": ["M300-P5-001", "M300-P5-002", "M300-P5-003", "M300-P5-004"],
+  "clean-cooking": ["M300-P2-008", "M300-P2-012", "M300-P2-010", "M300-P2-011"],
 };
 
 export const PILLAR_SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };

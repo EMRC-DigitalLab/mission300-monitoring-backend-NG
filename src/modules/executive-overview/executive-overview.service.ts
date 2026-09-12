@@ -60,6 +60,7 @@ export class ExecutiveOverviewService {
       gridProfile,
       miniGridProfile,
       shsProfile,
+      cleanCookingChannelProfile,
       renewableProfile,
       meteringProfile,
       atccProfile,
@@ -67,19 +68,33 @@ export class ExecutiveOverviewService {
       shortfallProfile,
       capitalProfile,
     ] = await Promise.all([
-      this.loadProfile("people-electricity-access"),
-      this.loadProfile("access-rate-national"),
-      this.loadProfile("generation-capacity-available"),
-      this.loadProfile("clean-cooking-access"),
-      this.loadProfile("grid-connections"),
-      this.loadProfile("mini-grid-connections"),
-      this.loadProfile("solar-home-systems"),
-      this.loadProfile("renewable-share"),
-      this.loadProfile("metering-rate"),
-      this.loadProfile("atcc-losses"),
-      this.loadProfile("market-remittance"),
-      this.loadProfile("tariff-shortfall"),
-      this.loadProfile("private-capital"),
+      // "People Connected to Electricity (Canonical)" - currently a small
+      // pilot ledger, not yet at national scale (see the real frontend
+      // mock's own comment, mocks/data/executive-overview.ts) - this card
+      // will honestly report "needs a positive target configured" until a
+      // real target is set on this KPI via the normal KPI Explorer edit
+      // screen, rather than fabricating the national composite figure the
+      // mock hardcodes with no real backing data.
+      this.loadProfile("M300-P2-024"),
+      this.loadProfile("M300-PX-001"),
+      this.loadProfile("M300-P1-016"),
+      // "Clean Cooking - Verified Beneficiary Households (Canonical)" - same
+      // pilot-ledger caveat as M300-P2-024 above.
+      this.loadProfile("M300-P2-025"),
+      this.loadProfile("M300-P2-001"),
+      this.loadProfile("M300-P2-003"),
+      this.loadProfile("M300-P2-006"),
+      // Access-delivery channel row for clean cooking - "Improved Cookstoves
+      // Distributed", distinct from the M300-P2-025 pilot-ledger headline
+      // card above (matches ACCESS_CHANNEL_KPI_IDS in the real frontend
+      // mock exactly - the two sections deliberately use different KPIs).
+      this.loadProfile("M300-P2-011"),
+      this.loadProfile("M300-P1-004"),
+      this.loadProfile("M300-P3-004"),
+      this.loadProfile("M300-P3-006"),
+      this.loadProfile("M300-P3-009"),
+      this.loadProfile("M300-P3-010"),
+      this.loadProfile("M300-P4-002"),
     ]);
 
     const headlineCards = {
@@ -101,7 +116,7 @@ export class ExecutiveOverviewService {
       this.buildAccessChannel("grid-connections", gridProfile),
       this.buildAccessChannel("mini-grid-connections", miniGridProfile),
       this.buildAccessChannel("solar-home-systems", shsProfile),
-      this.buildAccessChannel("clean-cooking", cleanCookingProfile),
+      this.buildAccessChannel("clean-cooking", cleanCookingChannelProfile),
     ];
 
     const nationalPerformanceAll = [
