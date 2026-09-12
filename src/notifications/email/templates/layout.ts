@@ -50,12 +50,14 @@ const token = {
   statusNeutralBg: "#eef0f3",
 } as const;
 
-// Google Sans itself is self-hosted by the dashboard (not on a public font
-// CDN), so it can't be reliably loaded in an email client. Falling through to
-// each platform's own system UI font keeps the same geometric-grotesk
-// character instead of dropping to a generic serif/Times fallback.
+// Figtree, not the dashboard's own Google Sans - Google Sans is self-hosted
+// by the dashboard (not on a public font CDN), so it can't be reliably
+// loaded in an email client. Figtree IS on Google Fonts' public CDN, so it's
+// linked directly in <head> below; the system-UI fallback chain still
+// covers clients (Outlook chief among them) that strip external stylesheets
+// outright.
 const fontFamily =
-  "'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:5173";
 const backendBase = process.env.BACKEND_URL ?? "http://localhost:3000";
@@ -121,6 +123,7 @@ export function renderLayout(title: string, bodyHtml: string, brand: EmailBrand,
     <meta name="color-scheme" content="light" />
     <meta name="supported-color-schemes" content="light" />
     <title>${escapeHtml(title)}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" />
   </head>
   <body style="margin: 0; padding: 0; background-color: ${token.surfacePage};">
     ${
