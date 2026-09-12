@@ -29,6 +29,7 @@ import { KpiExplorerModule } from "@/modules/kpi-explorer/kpi-explorer.module";
 import { ExecutiveOverviewModule } from "@/modules/executive-overview/executive-overview.module";
 import { PillarDashboardModule } from "@/modules/pillar-dashboard/pillar-dashboard.module";
 import { StateDiscoModule } from "@/modules/state-disco/state-disco.module";
+import { LearningLogModule } from "@/modules/learning-log/learning-log.module";
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { StateDiscoModule } from "@/modules/state-disco/state-disco.module";
     ExecutiveOverviewModule,
     PillarDashboardModule,
     StateDiscoModule,
+    LearningLogModule,
   ],
   providers: [
     // Every route requires a valid JWT unless marked @Public().

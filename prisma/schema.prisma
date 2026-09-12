@@ -105,6 +105,7 @@ model User {
   reviewDecisions  ReviewDecision[]  @relation("ReviewedBy")
   auditLogEntries  AuditLogEntry[]
   savedReports     SavedReport[]
+  learningLogEntries LearningLogEntry[]
   uploadedFiles    UploadedFile[]
   webhookSubscriptions WebhookSubscription[]
   passwordResetTokens  PasswordResetToken[]
@@ -1153,4 +1154,50 @@ model DiscoDeliveryMilestone {
 
   @@index([institutionId])
   @@map("disco_delivery_milestones")
+}
+
+/// What kind of thing a Learning & Decision Log entry is about, matching
+/// learningLogAreaSchema exactly (learning-log.ts) - lets the log be
+/// scanned by subject without needing free-text search.
+enum LearningLogArea {
+  KPI_METHODOLOGY
+  DATA_GOVERNANCE
+  RESULTS_FRAMEWORK
+  SUBMISSION_WORKFLOW
+  OTHER
+}
+
+enum LearningLogStatus {
+  PROPOSED
+  DECIDED
+  SUPERSEDED
+}
+
+/// The Learning & Decision Log - added per the SE4ALL MRL alignment review
+/// (docs/se4all-mrl-alignment-renewable-private-capital.md). Bottlenecks &
+/// Exceptions tracks what's currently blocked; this tracks the "why we
+/// changed X" decision itself, which had no dedicated record anywhere
+/// before. A pure record-keeping module - no linkage back into any other
+/// module's data beyond a free-text `relatedRecord`, matching the real
+/// contract exactly (learning-log.ts has no FK-shaped field here either).
+model LearningLogEntry {
+  id            String            @id @default(cuid())
+  title         String
+  area          LearningLogArea
+  /// What was decided or proposed.
+  decision      String
+  /// Why - what prompted the review and what it changed or will change.
+  rationale     String
+  /// The KPI id, module, or record this decision affects. Null for a
+  /// decision with no single affected record.
+  relatedRecord String?
+  /// e.g. "Q3 2026 review" - free text, review cycles aren't a closed
+  /// vocabulary anywhere else in the app either.
+  reviewCycle   String
+  status        LearningLogStatus @default(PROPOSED)
+  decidedById   String
+  decidedBy     User              @relation(fields: [decidedById], references: [id])
+  decidedAt     DateTime          @default(now())
+
+  @@map("learning_log_entries")
 }
