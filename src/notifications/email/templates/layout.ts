@@ -192,7 +192,7 @@ export function renderLayout(title: string, bodyHtml: string, brand: EmailBrand,
                             <img src="${emrcUrl}" alt="EMRC" width="16" style="display: block; width: 16px; height: auto; border: 0;" />
                           </td>
                           <td style="vertical-align: middle; font-family: ${fontFamily}; font-size: 9px; color: ${token.textMuted}; white-space: nowrap;">
-                            Platform built by EMRC
+                            developed by EMRC
                           </td>
                         </tr>
                       </table>
