@@ -80,7 +80,13 @@ async function main() {
   }
   console.log(`Pillars: ${pillarsBySlug.size} upserted.`);
 
-  const dataPath = join(__dirname, "data", "kpi-directory.json");
+  // process.cwd(), not __dirname - this script runs two ways with two
+  // different __dirname values (ts-node from the repo root locally;
+  // compiled to dist/prisma/ and run via plain `node` in the deployed
+  // container, see docker/Dockerfile), but both invocations share the same
+  // working directory (repo root / /app), where prisma/data always lives
+  // regardless of where the script itself was compiled to.
+  const dataPath = join(process.cwd(), "prisma", "data", "kpi-directory.json");
   const entries = JSON.parse(readFileSync(dataPath, "utf-8")) as KpiDirectoryEntry[];
   let created = 0;
   let updated = 0;

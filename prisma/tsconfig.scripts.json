@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../dist/prisma",
+    "noEmit": false,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["ingest-kpi-directory.ts"]
+}
