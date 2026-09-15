@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
 import { toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
@@ -159,14 +159,9 @@ export class ExecutiveOverviewService {
 
   /** Matches compactOutcomeCardSchema - used for peopleWithElectricityAccess and cleanCookingAccess. */
   private buildCompactOutcomeCard(profile: KpiProfile, title: string, icon: string) {
-    if (profile.target === null || profile.target <= 0) {
-      throw new InternalServerErrorException(
-        `Executive Overview KPI "${profile.id}" needs a positive target configured (PATCH kpi-explorer/kpis/${profile.id}) before this card can render.`,
-      );
-    }
     const baseline = profile.baseline ?? 0;
     const current = profile.current ?? baseline;
-    const target = profile.target;
+    const target = profile.target !== null && profile.target > 0 ? profile.target : null;
 
     return {
       title,
@@ -176,9 +171,7 @@ export class ExecutiveOverviewService {
       baseline,
       target,
       scaleMin: 0,
-      // scaleMax is derived from the real stored values (never a hardcoded
-      // Nigeria-specific benchmark) - just guarantees scaleMax > scaleMin.
-      scaleMax: Math.max(target, current, baseline, 1),
+      scaleMax: Math.max(target ?? 0, current, baseline, 1),
       reportingPeriod: profile.reportingPeriod || "Not yet reported",
       baselineLabel: profile.baselineLabel,
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
@@ -191,6 +184,7 @@ export class ExecutiveOverviewService {
       milestones: [] as { label: string; value: number }[],
       kpiId: profile.id,
       relatedKpiNote: null as { label: string; kpiId: string; value: string } | null,
+      trend: profile.trend,
       provenance: profile.provenance,
     };
   }
@@ -213,6 +207,7 @@ export class ExecutiveOverviewService {
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
       source: toSourceTag(profile.validationStatus),
       confidence: toConfidence(profile.validationStatus),
+      trend: profile.trend,
       provenance: profile.provenance,
       sparkline: history.map((p) => ({ period: p.period, value: p.value })),
     };
@@ -235,6 +230,7 @@ export class ExecutiveOverviewService {
       reportingPeriod: profile.reportingPeriod || "Not yet reported",
       source: toSourceTag(profile.validationStatus),
       confidence: toConfidence(profile.validationStatus),
+      trend: profile.trend,
       provenance: profile.provenance,
     };
   }
@@ -247,13 +243,14 @@ export class ExecutiveOverviewService {
     return {
       id,
       title: profile.name,
-      value: numberFormatter.format(current),
+      value: profile.current === null ? "Not yet reported" : numberFormatter.format(current),
       rawValue: current,
       target,
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
       percentComplete,
       source: toSourceTag(profile.validationStatus),
       confidence: toConfidence(profile.validationStatus),
+      trend: profile.trend,
       provenance: profile.provenance,
     };
   }
@@ -286,6 +283,7 @@ export class ExecutiveOverviewService {
       caption: config.caption,
       source: toSourceTag(profile.validationStatus),
       confidence: toConfidence(profile.validationStatus),
+      trend: profile.trend,
       provenance: profile.provenance,
       history: profile.history.map((p) => ({ period: p.period, value: p.value })),
     };
@@ -337,7 +335,7 @@ export class ExecutiveOverviewService {
     const now = new Date();
     const [projects, bottlenecks] = await Promise.all([
       this.prisma.project.findMany({
-        where: { currentStatus: { not: "COMPLETED" } },
+        where: {},
         include: { pillar: true, programme: true, statusHistory: true },
       }),
       this.prisma.bottleneck.findMany({
@@ -372,12 +370,12 @@ export class ExecutiveOverviewService {
       currentStatus: toKebabCase(p.currentStatus),
       pipelineReadiness: p.pipelineReadiness ? toKebabCase(p.pipelineReadiness) : null,
       startDate: p.startDate.toISOString(),
-      endDate: p.endDate.toISOString(),
+      endDate: p.endDate ? p.endDate.toISOString() : null,
       comment: p.comment,
       statusHistory: p.statusHistory.map((h) => ({ period: h.period, status: toKebabCase(h.status) })),
     }));
 
-    const statusSummary = (["on-track", "at-risk", "delayed", "blocked"] as const).map((status) => ({
+    const statusSummary = (["on-track", "at-risk", "delayed", "blocked", "completed"] as const).map((status) => ({
       status,
       count: ongoingProjects.filter((p) => p.currentStatus === status).length,
     }));

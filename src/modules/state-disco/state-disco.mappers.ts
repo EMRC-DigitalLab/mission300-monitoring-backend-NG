@@ -52,7 +52,7 @@ export function formatNgnBillions(value: number): string {
 }
 
 export function formatPercent(value: number): string {
-  return `${decimalFormatter.format(value)}%`;
+  return `${value.toFixed(1)}%`;
 }
 
 function titleCase(kebab: string): string {

@@ -361,16 +361,26 @@ async function main() {
 
     const energyReceivedMwh = acc.energyReceivedGwh * 1000;
     const energyBilledMwh = acc.energyBilledGwh * 1000;
+    const revenueBilledNgn = acc.revenueBilledMillionNgn * 1_000_000;
+    const revenueCollectedNgn = acc.revenueCollectedMillionNgn * 1_000_000;
+
+    // ATC&C = [1 - (billing efficiency x collection efficiency)] x 100.
+    // Energy received minus energy billed alone captures only the technical
+    // and commercial half; the collection half is the revenue ratio.
+    const billingEfficiency = energyReceivedMwh > 0 ? energyBilledMwh / energyReceivedMwh : 0;
+    const collectionEfficiency = revenueBilledNgn > 0 ? revenueCollectedNgn / revenueBilledNgn : 0;
     const atccLossRatePercent =
-      energyReceivedMwh > 0 ? ((energyReceivedMwh - energyBilledMwh) / energyReceivedMwh) * 100 : 0;
+      energyReceivedMwh > 0 && revenueBilledNgn > 0
+        ? (1 - billingEfficiency * collectionEfficiency) * 100
+        : 0;
 
     const data = {
       activeCustomers: acc.meteredCustomers + acc.unmeteredCustomers,
       meteredCustomers: acc.meteredCustomers,
       energyReceivedMwh,
       energyBilledMwh,
-      revenueBilledNgn: acc.revenueBilledMillionNgn * 1_000_000,
-      revenueCollectedNgn: acc.revenueCollectedMillionNgn * 1_000_000,
+      revenueBilledNgn,
+      revenueCollectedNgn,
       remittanceObligationNgn: (acc.moInvoiceBillionNgn + acc.nbetInvoiceBillionNgn) * 1_000_000_000,
       remittanceActualNgn: (acc.moRemittanceBillionNgn + acc.nbetRemittanceBillionNgn) * 1_000_000_000,
       atccLossRatePercent,

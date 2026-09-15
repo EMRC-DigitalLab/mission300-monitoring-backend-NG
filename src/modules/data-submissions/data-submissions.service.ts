@@ -261,40 +261,42 @@ export class DataSubmissionsService {
     return toUploadDefinition(obligation);
   }
 
-  /**
-   * Mirrors the mock's own handler exactly (m300-frontend/src/mocks/
-   * handlers/data-submissions.ts): it doesn't validate or compute
-   * anything either, just records the draft and points back at the
-   * submissions list, not the validation queue - "Server validation is
-   * ready to run" implies that happens as a later step, unlike upload
-   * (below), which validates synchronously and goes straight to
-   * pending-review. This IS a real gap in the frontend's own contract
-   * (no endpoint anywhere promotes a manual-entry draft to pending-
-   * review) - matched deliberately rather than invented around.
-   */
   async saveManualEntry(user: AuthenticatedUser, obligationId: string, dto: ManualEntryDto) {
     const obligation = await this.findObligationWithFields(obligationId);
+
+    const issues = validateFieldValues(obligation.dataset.fields, dto.values);
+    if (issues.length > 0) {
+      throw new BadRequestException(
+        `This entry has ${issues.length} problem${issues.length === 1 ? "" : "s"}: ` +
+          issues.map((issue) => issue.message).join(" "),
+      );
+    }
+
     const items = buildSubmissionItems(obligation.dataset.fields, dto.values, obligation.reportingPeriod);
+    const reviewerId = await this.pickReviewer();
 
     const submission = await this.prisma.submission.create({
       data: {
         institutionId: obligation.institutionId,
         submittedById: user.id,
         method: "MANUAL_ENTRY",
-        status: "DRAFT",
+        status: "PENDING",
         obligationId: obligation.id,
         sourceReference: dto.sourceReference ?? "",
         notes: dto.notes ?? "",
+        reviewerId,
         items: { create: items },
       },
     });
 
+    await this.rabbitmq.publish("submission.uploaded", { submissionId: submission.id });
+
     return {
       submissionId: submission.id,
       version: submission.version,
-      status: workflowStatus("draft"),
-      message: "Draft saved. Server validation is ready to run.",
-      nextUrl: "/data-submissions/submissions",
+      status: workflowStatus("pending-review"),
+      message: "Entry submitted. Backend validation passed and the submission is ready for review.",
+      nextUrl: `/data-submissions/validation/${submission.id}`,
     };
   }
 

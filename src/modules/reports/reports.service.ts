@@ -4,7 +4,7 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
-import { toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { toObligationView, toValidationQueueItem } from "@/modules/data-submissions/data-submissions.mappers";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import {
@@ -67,7 +67,9 @@ export class ReportsService {
     return {
       reportingPeriods: withAll(
         "periods",
-        [...new Set(periods.map((p) => p.period))].sort().map((p) => ({ value: p, label: p })),
+        [...new Set(periods.map((p) => p.period))]
+          .sort()
+          .map((p) => ({ value: p, label: formatPeriodLabel(p) })),
       ),
       pillars: withAll(
         "pillars",

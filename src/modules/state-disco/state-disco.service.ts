@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { ValidationStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { toKebabCase } from "@/common/utils/enum-casing";
+import { formatPeriodLabel } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import {
   formatPercent,
   periodSortKey,
@@ -40,9 +41,9 @@ export class StateDiscoService {
     return {
       reportingPeriods: withAll(
         "periods",
-        [...new Set(periodRows.map((p) => p.period))]
-          .sort((a, b) => periodSortKey(a) - periodSortKey(b))
-          .map((p) => ({ value: p, label: p })),
+        [...new Map(periodRows.map((p) => [formatPeriodLabel(p.period), p.period])).values()]
+          .sort((a, b) => periodSortKey(b) - periodSortKey(a))
+          .map((p) => ({ value: p, label: formatPeriodLabel(p) })),
       ),
       // Not measured data - the page's own View toggle between the DisCo-
       // led default and the State view (docs/specs/state-disco-
@@ -99,8 +100,9 @@ export class StateDiscoService {
     };
   }
 
-  private async getLatestRecordPerDisco() {
+  private async getLatestRecordPerDisco(period?: string) {
     const records = await this.prisma.discoPerformanceRecord.findMany({
+      where: period && period !== "all" ? { period } : undefined,
       include: { institution: true },
     });
     // "Latest" means chronologically latest period, not most recently
@@ -114,9 +116,9 @@ export class StateDiscoService {
     return [...latest.values()];
   }
 
-  private async getRecordsForDisco(institutionId: string) {
+  private async getRecordsForDisco(institutionId: string, period?: string) {
     const records = await this.prisma.discoPerformanceRecord.findMany({
-      where: { institutionId },
+      where: { institutionId, ...(period && period !== "all" ? { period } : {}) },
       include: { institution: true },
     });
     records.sort((a, b) => periodSortKey(b.period) - periodSortKey(a.period));
@@ -125,6 +127,7 @@ export class StateDiscoService {
 
   async getOverview(query: StateDiscoQueryDto) {
     const selection = query.distributionCompany ?? "national";
+    const periodFilter = query.reportingPeriod ?? "all";
     const now = PROVENANCE_NOW();
 
     let selectedLabel: string;
@@ -143,7 +146,7 @@ export class StateDiscoService {
     let previous: typeof current | null = null;
 
     if (selection === "national") {
-      const latestPerDisco = await this.getLatestRecordPerDisco();
+      const latestPerDisco = await this.getLatestRecordPerDisco(periodFilter);
       selectedLabel = "National (all DisCos)";
       const totals = latestPerDisco.reduce(
         (acc, r) => ({
@@ -155,7 +158,7 @@ export class StateDiscoService {
           revenueCollectedNgn: acc.revenueCollectedNgn + Number(r.revenueCollectedNgn),
           remittanceObligationNgn: acc.remittanceObligationNgn + Number(r.remittanceObligationNgn),
           remittanceActualNgn: acc.remittanceActualNgn + Number(r.remittanceActualNgn),
-          atccLossRatePercent: acc.atccLossRatePercent + Number(r.atccLossRatePercent),
+          atccLossRatePercent: 0,
           // Sum and count only over DisCos that actually have an allowed
           // benchmark entered - averaging in a 0 for a DisCo with no
           // benchmark yet would silently understate the national figure.
@@ -183,9 +186,14 @@ export class StateDiscoService {
         ...rest,
         allowedLossRatePercent: allowedLossRateCount > 0 ? allowedLossRateSum / allowedLossRateCount : null,
       };
-      if (latestPerDisco.length > 0) {
-        current.atccLossRatePercent /= latestPerDisco.length;
-      }
+      const billingEfficiency =
+        current.energyReceivedMwh > 0 ? current.energyBilledMwh / current.energyReceivedMwh : 0;
+      const collectionEfficiency =
+        current.revenueBilledNgn > 0 ? current.revenueCollectedNgn / current.revenueBilledNgn : 0;
+      current.atccLossRatePercent =
+        current.energyReceivedMwh > 0 && current.revenueBilledNgn > 0
+          ? (1 - billingEfficiency * collectionEfficiency) * 100
+          : 0;
       // No real period-aligned multi-institution history is tracked yet to
       // diff a national aggregate against a prior cycle - honest zero
       // rather than an invented comparison.
@@ -195,7 +203,7 @@ export class StateDiscoService {
       if (!institution) throw new NotFoundException("Unknown Distribution Company.");
       selectedLabel = institution.name;
 
-      const records = await this.getRecordsForDisco(selection);
+      const records = await this.getRecordsForDisco(selection, periodFilter);
       if (records.length === 0) {
         current = {
           activeCustomers: 0,
@@ -335,8 +343,11 @@ export class StateDiscoService {
       {
         id: "market-remittance",
         title: "Market-remittance performance",
-        value: formatPercent(remittancePerformance),
-        supportingLabel: `${current.remittanceActualNgn.toLocaleString()} of ${current.remittanceObligationNgn.toLocaleString()} NGN obligation remitted`,
+        value: current.remittanceObligationNgn > 0 ? formatPercent(remittancePerformance) : "Not reported",
+        supportingLabel:
+          current.remittanceObligationNgn > 0
+            ? `${current.remittanceActualNgn.toLocaleString()} of ${current.remittanceObligationNgn.toLocaleString()} NGN obligation remitted`
+            : "No remittance obligation reported for this period",
         benchmarkLabel: "100% of applicable obligation",
         varianceLabel: `${(remittancePerformance - 100).toFixed(1)} pts vs 100% compliance`,
         progressPercent: Math.max(0, Math.min(100, Math.round(remittancePerformance))),

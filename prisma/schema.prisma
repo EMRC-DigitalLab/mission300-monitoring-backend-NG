@@ -684,7 +684,10 @@ model Project {
   projectedStatus    ExecutionStatus     @default(ON_TRACK)
   currentStatus      ExecutionStatus     @default(ON_TRACK)
   startDate          DateTime
-  endDate            DateTime
+  /// Null where the source register records no projected completion date -
+  /// the NISO project register leaves it blank for most of its entries, and
+  /// a placeholder date would read as a real delivery commitment.
+  endDate            DateTime?
   evidenceUrl        String?
   bottleneckCategory BottleneckCategory?
   /// The workbook's "Comment - Issues/Main Risk/Bottlenecks" narrative.

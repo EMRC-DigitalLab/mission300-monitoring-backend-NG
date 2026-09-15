@@ -34,7 +34,35 @@ function deriveConfidence(submissionStatus: string | null): string {
 }
 
 function toNumber(value: unknown): number | null {
-  return value === null || value === undefined ? null : Number(value);
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.round(parsed * 100) / 100;
+}
+
+export function formatPeriodLabel(period: string): string {
+  const quarter = /^q([1-4])-(\d{4})$/i.exec(period.trim());
+  if (quarter) return `Q${quarter[1]} ${quarter[2]}`;
+  return period;
+}
+
+const HISTORY_WINDOW = 4;
+
+function buildTrend(
+  currentValue: number,
+  previousValue: number,
+  previousPeriod: string,
+  unit: string,
+  direction: "higher-is-better" | "lower-is-better",
+) {
+  const change = Math.round((currentValue - previousValue) * 100) / 100;
+  const sign = change > 0 ? "+" : "";
+  const suffix = unit === "%" ? " pp" : unit ? ` ${unit}` : "";
+  return {
+    change,
+    label: `${sign}${change}${suffix} vs ${formatPeriodLabel(previousPeriod)}`,
+    direction,
+  };
 }
 
 type KpiWithPillar = KpiDefinition & { pillar: Pillar };
@@ -96,12 +124,20 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
   const target = toNumber(kpi.target);
   const baseline = toNumber(kpi.baseline);
 
-  const history = sorted.map((v) => ({
-    period: v.period,
-    value: Number(v.value),
+  const history = sorted.slice(-HISTORY_WINDOW).map((v) => ({
+    period: formatPeriodLabel(v.period),
+    value: toNumber(v.value) ?? 0,
     validationStatus: deriveValidationStatus(v.sourceSubmissionItem.submission.status),
     submissionId: v.sourceSubmissionItem.submissionId,
   }));
+
+  const direction = toKebabCase(kpi.direction) as "higher-is-better" | "lower-is-better";
+  const previous = sorted.length > 1 ? sorted.at(-2)! : null;
+  const previousValue = previous ? toNumber(previous.value) : null;
+  const trend =
+    current !== null && previous !== null && previousValue !== null
+      ? buildTrend(current, previousValue, previous.period, kpi.unit, direction)
+      : undefined;
 
   const definitionText = kpi.definition || "Not yet documented.";
   const lastUpdated = (latest?.approvedAt ?? kpi.updatedAt).toISOString();
@@ -133,13 +169,14 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     targets: kpi.targetPoints.map((p) => ({ period: p.period, value: Number(p.value), label: p.label })),
     externalStandardAlignment: (kpi.externalStandardAlignment as object | null) ?? null,
     varianceLabel: buildVarianceLabel(current, target, kpi.direction, kpi.unit),
-    direction: toKebabCase(kpi.direction) as "higher-is-better" | "lower-is-better",
+    direction,
+    trend,
     history,
 
     sourceInstitution: kpi.sourceInstitution || "Not supplied",
     sourceDataset: kpi.sourceDataset || "Not supplied",
     sourceReference: kpi.sourceReference,
-    reportingPeriod: latest?.period ?? "",
+    reportingPeriod: latest ? formatPeriodLabel(latest.period) : "",
     validationStatus: deriveValidationStatus(submissionStatus),
     validationDecision: submissionStatus ? (DECISION_LABEL[submissionStatus] ?? "") : "",
     version: kpi.version,

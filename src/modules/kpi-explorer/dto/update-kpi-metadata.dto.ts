@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
 import {
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -11,16 +12,32 @@ import {
 import { KpiTargetPointDto } from "@/modules/kpi-explorer/dto/kpi-target-point.dto";
 import { ExternalStandardAlignmentDto } from "@/modules/kpi-explorer/dto/external-standard-alignment.dto";
 
+// Matches pillarIdSchema exactly (m300-frontend/src/api/schemas/common.ts),
+// same list as create-kpi.dto.ts's PILLAR_SLUGS.
+const PILLAR_SLUGS = [
+  "generation-network",
+  "last-mile-access",
+  "financially-viable-utilities",
+  "private-sector-participation",
+  "regional-integration",
+  "clean-cooking",
+];
+
 // Matches updateKpiMetadataRequestSchema exactly (m300-frontend/src/api/
 // schemas/kpi-explorer.ts) - deliberately excludes category/readiness/
-// pillar/name (not editable via this endpoint) and targetBasis/
-// targetBasisLabel/direction (not settable via ANY endpoint in the real
-// contract - confirmed by reading the schema file directly, not assumed).
+// name (not editable via this endpoint) and targetBasis/targetBasisLabel/
+// direction (not settable via ANY endpoint in the real contract - confirmed
+// by reading the schema file directly, not assumed). Pillar reassignment IS
+// part of the real contract now: moves the KpiDefinition to the given
+// Pillar row (see KpiExplorerService.updateMetadata()).
 // baseline/target/targetDate are nullable (required in the body, but the
 // value itself may be null) - @ValidateIf lets null through while still
 // validating a non-null value, unlike @IsOptional (which only skips
 // validation for undefined/absent, not null).
 export class UpdateKpiMetadataDto {
+  @IsIn(PILLAR_SLUGS, { message: "Select a valid pillar" })
+  pillar!: string;
+
   @IsString()
   @IsNotEmpty()
   definition!: string;

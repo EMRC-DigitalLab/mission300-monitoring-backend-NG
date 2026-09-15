@@ -65,7 +65,7 @@ export function toProjectRecord(p: ProjectFull, bottleneckIds: string[]) {
     projectedStatus: toKebabCase(p.projectedStatus),
     currentStatus: toKebabCase(p.currentStatus),
     startDate: p.startDate.toISOString(),
-    endDate: p.endDate.toISOString(),
+    endDate: p.endDate ? p.endDate.toISOString() : null,
     evidenceUrl: p.evidenceUrl,
     bottlenecks: bottleneckIds,
     bottleneckCategory: p.bottleneckCategory ? toKebabCase(p.bottleneckCategory) : null,

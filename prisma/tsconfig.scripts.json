@@ -10,6 +10,16 @@
     "ingest-kpi-directory.ts",
     "ingest-nerc-disco-data.ts",
     "ingest-nerc-genco-kpis.ts",
-    "ingest-nerc-tariff-kpi.ts"
+    "ingest-nerc-tariff-kpi.ts",
+    "ingest-national-rollup-kpis.ts",
+    "ingest-rea-kpi-baseline.ts",
+    "ingest-rea-project-register.ts",
+    "ingest-access-delivery-kpis.ts",
+    "ingest-niso-project-register.ts",
+    "ingest-niso-generation-kpis.ts",
+    "ingest-derived-utility-kpis.ts",
+    "ingest-niso-bilateral-kpi.ts",
+    "ingest-niso-remaining-sheets.ts",
+    "ingest-nerc-datasets-obligations.ts"
   ]
 }

@@ -169,7 +169,8 @@ export class ProgramsService {
       this.prisma,
       filtered.map((p) => p.id),
     );
-    return filtered.map((p) => toProjectRecord(p, bottleneckIds.get(p.id) ?? []));
+    const records = filtered.map((p) => toProjectRecord(p, bottleneckIds.get(p.id) ?? []));
+    return paginate(records, query.page ?? 1, Math.min(200, query.pageSize ?? 10));
   }
 
   async getProject(projectId: string) {

@@ -7,7 +7,9 @@ import type { KpiExplorerQueryDto } from "@/modules/kpi-explorer/dto/kpi-explore
 import type { UpdateKpiMetadataDto } from "@/modules/kpi-explorer/dto/update-kpi-metadata.dto";
 import type { CreateKpiDto } from "@/modules/kpi-explorer/dto/create-kpi.dto";
 import type { SetKpiActiveDto } from "@/modules/kpi-explorer/dto/set-kpi-active.dto";
-import { toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import type { SetKpiCurrentValueDto } from "@/modules/kpi-explorer/dto/set-kpi-current-value.dto";
+import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
+import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -74,10 +76,11 @@ export class KpiExplorerService {
       ),
       reportingPeriods: withAll(
         "periods",
-        [...new Set(periods.map((p) => p.period))].sort().map((p) => ({ value: p, label: p })),
+        [...new Set(periods.map((p) => p.period))]
+          .sort()
+          .map((p) => ({ value: p, label: formatPeriodLabel(p) })),
       ),
-      // No State/DisCo entity exists yet - see this DTO's own comment.
-      geographies: withAll("geographies", []),
+      geographies: [{ value: "national", label: "National" }],
     };
   }
 
@@ -150,20 +153,25 @@ export class KpiExplorerService {
   }
 
   /**
-   * Deliberately excludes category/readiness/pillar/name (not part of
+   * Deliberately excludes category/readiness/name (not part of
    * updateKpiMetadataRequestSchema - those are effectively permanent once
    * an indicator is registered) and never touches current/history/
    * validationStatus/confidence - those only ever change via an approved
-   * data submission (see toKpiProfile()'s own comment).
+   * data submission (see toKpiProfile()'s own comment). Pillar reassignment
+   * IS part of this endpoint - see the DTO's own comment.
    */
   async updateMetadata(code: string, dto: UpdateKpiMetadataDto) {
     const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
     if (!kpi) throw new NotFoundException("KPI not found.");
 
+    const pillar = await this.prisma.pillar.findUnique({ where: { slug: dto.pillar } });
+    if (!pillar) throw new BadRequestException("Unknown pillar.");
+
     await this.prisma.$transaction(async (tx) => {
       await tx.kpiDefinition.update({
         where: { id: kpi.id },
         data: {
+          pillarId: pillar.id,
           definition: dto.definition,
           formula: dto.formula,
           unit: dto.unit,
@@ -280,6 +288,92 @@ export class KpiExplorerService {
         ? `${updated.name} was restored to the catalogue.`
         : `${updated.name} was retired from the catalogue.`,
     };
+  }
+
+  /**
+   * Explicit admin override of the usual rule that current/history only
+   * ever change via an approved data submission (recordDecision() in
+   * data-submissions.service.ts). KpiValue.sourceSubmissionItemId is a
+   * required, unique FK - there is no schema path to a value that isn't
+   * linked to a real SubmissionItem - so this synthesizes a minimal,
+   * already-decided submission chain (Submission + one SubmissionItem +
+   * ReviewDecision, status set straight to APPROVED/PROVISIONALLY_APPROVED)
+   * rather than a bare KpiValue insert. That keeps every existing reader
+   * (toCatalogueRow/toKpiProfile, both of which derive current/
+   * validationStatus from the submission behind the KpiValue) working
+   * unchanged, and keeps the override itself traceable in the submissions
+   * table rather than being invisible. `note`, if given, is recorded as the
+   * ReviewDecision's comment so the override reason survives in the audit
+   * trail; there's nowhere on KpiValue itself to keep free text.
+   */
+  async setCurrentValue(code: string, dto: SetKpiCurrentValueDto, user: AuthenticatedUser) {
+    const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
+    if (!kpi) throw new NotFoundException("KPI not found.");
+
+    const institutionId = await this.resolveInstitutionId(kpi.sourceInstitution, user.institutionId);
+    const targetStatus = dto.resultingStatus === "confirmed" ? "APPROVED" : "PROVISIONALLY_APPROVED";
+    const reviewType = dto.resultingStatus === "confirmed" ? "APPROVE" : "PROVISIONALLY_APPROVE";
+    const approvedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      const submission = await tx.submission.create({
+        data: {
+          institutionId,
+          submittedById: user.id,
+          method: "MANUAL_ENTRY",
+          status: targetStatus,
+          sourceReference: "Admin override — set directly, outside the submission workflow.",
+          notes: dto.note ?? "",
+          reviewerId: user.id,
+          items: {
+            create: [{ kpiDefinitionId: kpi.id, period: dto.reportingPeriod, value: dto.value }],
+          },
+        },
+        include: { items: true },
+      });
+
+      await tx.reviewDecision.create({
+        data: { submissionId: submission.id, reviewedById: user.id, decision: reviewType, comment: dto.note ?? "" },
+      });
+
+      await tx.kpiValue.create({
+        data: {
+          kpiDefinitionId: kpi.id,
+          institutionId,
+          period: dto.reportingPeriod,
+          value: dto.value,
+          sourceSubmissionItemId: submission.items[0]!.id,
+          approvedAt,
+        },
+      });
+    });
+
+    return this.getProfile(code);
+  }
+
+  /**
+   * A KpiValue needs an institutionId, but KpiDefinition.sourceInstitution
+   * is free text, not a relation - so this finds the Institution row that
+   * name already matches (case-insensitively), falls back to the admin's
+   * own institution if they have one, and only creates a new Institution
+   * row as a last resort (type "Administrative", since nothing more
+   * specific is known about it here).
+   */
+  private async resolveInstitutionId(sourceInstitution: string, fallbackInstitutionId: string | null) {
+    const name = sourceInstitution.trim();
+    if (name) {
+      const existing = await this.prisma.institution.findFirst({
+        where: { name: { equals: name, mode: "insensitive" } },
+      });
+      if (existing) return existing.id;
+    }
+
+    if (fallbackInstitutionId) return fallbackInstitutionId;
+
+    const created = await this.prisma.institution.create({
+      data: { name: name || "Unattributed (admin override)", type: "Administrative" },
+    });
+    return created.id;
   }
 }
 

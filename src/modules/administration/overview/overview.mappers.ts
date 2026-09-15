@@ -37,7 +37,7 @@ export function toUserAccountResponse(user: UserWithInstitution) {
     id: user.id,
     name: user.fullName,
     email: user.email,
-    institution: user.institution?.name ?? "",
+    institution: user.institution?.name ?? "Not assigned",
     designation: user.designation,
     role: toKebabCase(user.role),
     status: toKebabCase(user.status),

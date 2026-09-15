@@ -313,12 +313,14 @@ type SubmissionWithDetailRelations = SubmissionWithQueueRelations & {
 export function toSubmissionDetail(submission: SubmissionWithDetailRelations) {
   const createdEntry = {
     id: `${submission.id}-created`,
-    status: workflowStatus(submission.method === "UPLOAD" ? "pending-review" : "draft"),
+    status: workflowStatus("pending-review"),
     actor: submission.submittedBy.fullName,
     occurredAt: submission.createdAt.toISOString(),
     occurredAtLabel: formatAgeLabel(submission.createdAt),
     comment:
-      submission.method === "UPLOAD" ? "Template uploaded and backend validation completed." : "Draft saved.",
+      submission.method === "UPLOAD"
+        ? "Template uploaded and backend validation completed."
+        : "Entry submitted and backend validation completed.",
   };
   const decisionEntries = submission.reviewDecisions
     .slice()

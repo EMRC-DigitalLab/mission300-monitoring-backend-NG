@@ -59,6 +59,7 @@ export function toPillarHeadlineCard(profile: KpiProfile) {
     target: profile.target,
     targetBasis: profile.targetBasis,
     targetBasisLabel: profile.targetBasisLabel,
+    direction: profile.direction,
     validationStatus: profile.validationStatus,
     provenance: profile.provenance,
   };

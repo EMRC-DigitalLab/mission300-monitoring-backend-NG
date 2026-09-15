@@ -5,8 +5,10 @@ import { KpiExplorerQueryDto } from "@/modules/kpi-explorer/dto/kpi-explorer-que
 import { UpdateKpiMetadataDto } from "@/modules/kpi-explorer/dto/update-kpi-metadata.dto";
 import { CreateKpiDto } from "@/modules/kpi-explorer/dto/create-kpi.dto";
 import { SetKpiActiveDto } from "@/modules/kpi-explorer/dto/set-kpi-active.dto";
+import { SetKpiCurrentValueDto } from "@/modules/kpi-explorer/dto/set-kpi-current-value.dto";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 
 // Both phases of the KPI Explorer rebuild: the read-only foundation
 // (catalogue/filters/profile) and the 3 mutation endpoints (create, edit
@@ -58,5 +60,19 @@ export class KpiExplorerController {
   @AuditAction("kpi.active_toggled")
   setActive(@Param("id") id: string, @Body() dto: SetKpiActiveDto) {
     return this.kpiExplorer.setActive(id, dto);
+  }
+
+  // Explicit admin override of the usual rule that current/history only
+  // ever change via an approved data submission - see
+  // KpiExplorerService.setCurrentValue()'s own comment.
+  @Roles("SYSTEM_ADMINISTRATOR")
+  @Patch("kpis/:id/current-value")
+  @AuditAction("kpi.current_value_set")
+  setCurrentValue(
+    @Param("id") id: string,
+    @Body() dto: SetKpiCurrentValueDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.kpiExplorer.setCurrentValue(id, dto, user);
   }
 }
