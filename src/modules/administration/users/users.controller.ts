@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { UsersService } from "@/modules/administration/users/users.service";
 import { InviteUserDto } from "@/modules/administration/users/dto/invite-user.dto";
 import { SetUserStatusDto } from "@/modules/administration/users/dto/set-user-status.dto";
+import { UpdateUserRolesDto } from "@/modules/administration/users/dto/update-user-roles.dto";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
 
@@ -28,5 +29,11 @@ export class UsersController {
   @AuditAction("user.status_changed")
   setStatus(@Param("id") id: string, @Body() dto: SetUserStatusDto) {
     return this.users.setStatus(id, dto.status);
+  }
+
+  @Patch(":id/roles")
+  @AuditAction("user.roles_changed")
+  updateRoles(@Param("id") id: string, @Body() dto: UpdateUserRolesDto) {
+    return this.users.updateRoles(id, dto.roles);
   }
 }

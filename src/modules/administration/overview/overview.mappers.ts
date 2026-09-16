@@ -40,6 +40,7 @@ export function toUserAccountResponse(user: UserWithInstitution) {
     institution: user.institution?.name ?? "Not assigned",
     designation: user.designation,
     role: toKebabCase(user.role),
+    roles: (user.roles.length ? user.roles : [user.role]).map(toKebabCase),
     status: toKebabCase(user.status),
     lastLogin: user.lastLogin?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),

@@ -24,7 +24,7 @@ export class InstitutionScopeGuard implements CanActivate {
     }>();
     const { user, params } = request;
 
-    if (UNSCOPED_ROLES.includes(user.role)) return true;
+    if ((user.roles?.length ? user.roles : [user.role]).some((role) => UNSCOPED_ROLES.includes(role))) return true;
 
     const requestedInstitutionId = params.institutionId;
     if (!requestedInstitutionId) return true; // route doesn't scope by institution
@@ -38,6 +38,6 @@ export class InstitutionScopeGuard implements CanActivate {
 
 /** Reuse the same allow-list from a service method's own scoping check. */
 export function scopeInstitutionFilter(user: AuthenticatedUser): { institutionId?: string } {
-  if (UNSCOPED_ROLES.includes(user.role)) return {};
+  if ((user.roles?.length ? user.roles : [user.role]).some((role) => UNSCOPED_ROLES.includes(role))) return {};
   return { institutionId: user.institutionId ?? "__none__" };
 }

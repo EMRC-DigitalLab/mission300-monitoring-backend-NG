@@ -115,6 +115,24 @@ async function main() {
     update: {},
   });
 
+  // Without at least one active DATA_REVIEWER/VALIDATOR, pickReviewer() in
+  // DataSubmissionsService.uploadSubmission()/saveManualEntry() finds no
+  // one to assign, and every submission lands "Unassigned" in the
+  // validation queue on a fresh install.
+  const reviewerPasswordHash = await argon2.hash("ChangeMe123!");
+  await prisma.user.upsert({
+    where: { email: "reviewer@m300.local" },
+    create: {
+      email: "reviewer@m300.local",
+      fullName: "Seed Data Reviewer",
+      designation: "Data Reviewer",
+      role: RoleName.DATA_REVIEWER,
+      status: AccountStatus.ACTIVE,
+      passwordHash: reviewerPasswordHash,
+    },
+    update: {},
+  });
+
   // One example row for Administration > Access Scope - this table is
   // read-only from the API (see ScopeAssignment's comment in schema.prisma),
   // so seed data is the only way anything shows up in it for now.
@@ -928,7 +946,9 @@ async function main() {
     update: {},
   });
 
-  console.log("Seed complete. Login as admin@m300.local / provider@m300.local, password: ChangeMe123!");
+  console.log(
+    "Seed complete. Login as admin@m300.local / provider@m300.local / reviewer@m300.local, password: ChangeMe123!",
+  );
 }
 
 main()

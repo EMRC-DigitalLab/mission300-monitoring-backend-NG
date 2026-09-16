@@ -3,38 +3,53 @@ import ExcelJS from "exceljs";
 import type { DatasetField } from "@prisma/client";
 
 const SHEET_NAME = "Submission";
+const PERIOD_COLUMN_KEY = "period";
 
-/**
- * Real contract requirement (docs/API.md): the template is generated fresh
- * per request from the dataset's LIVE field configuration, not a stored
- * file. Header row uses each field's label - parseSubmissionFile() below
- * matches an uploaded file's columns back to fields the same way, by
- * label, so generation and parsing stay in sync automatically.
- */
-export async function generateTemplateBuffer(fields: DatasetField[]): Promise<Buffer> {
+function periodColumnHeader(frequency: string): string {
+  if (frequency === "Monthly") return "Period (e.g. January 2026)";
+  if (frequency === "Annual") return "Period (e.g. 2026)";
+  return "Period (e.g. Q3 2026)";
+}
+
+export async function generateTemplateBuffer(fields: DatasetField[], frequency: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(SHEET_NAME);
-  sheet.columns = [...fields]
-    .sort((a, b) => a.order - b.order)
-    .map((field) => ({ header: field.label, key: field.id, width: 28 }));
-  sheet.addRow({}); // one blank row for the submitter to fill in
+  sheet.columns = [
+    { header: periodColumnHeader(frequency), key: PERIOD_COLUMN_KEY, width: 24 },
+    ...[...fields]
+      .sort((a, b) => a.order - b.order)
+      .map((field) => ({ header: field.label, key: field.id, width: 28 })),
+  ];
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
 
-/**
- * Reads the one data row (a single obligation covers one institution x
- * dataset x reporting period, so one row is all a template ever needs) and
- * maps each column back to a DatasetField by matching its header label
- * (case/whitespace-insensitive) - returns { fieldId: rawStringValue }, the
- * same shape manualEntryRequestSchema.values uses, so both creation paths
- * feed the same validation/extraction logic downstream.
- */
+export interface ParsedSubmissionRow {
+  period: string;
+  values: Record<string, string>;
+}
+
+function normalizeLabel(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+function isPeriodHeader(headerText: string): boolean {
+  return normalizeLabel(headerText).startsWith("period");
+}
+
+function isRowBlank(row: ExcelJS.Row): boolean {
+  let hasValue = false;
+  row.eachCell({ includeEmpty: false }, (cell) => {
+    if (cell.value !== null && cell.value !== undefined && String(cell.value).trim() !== "") hasValue = true;
+  });
+  return !hasValue;
+}
+
 export async function parseSubmissionFile(
   buffer: Buffer,
   fileName: string,
   fields: DatasetField[],
-): Promise<Record<string, string>> {
+): Promise<ParsedSubmissionRow[]> {
   const workbook = new ExcelJS.Workbook();
   if (fileName.toLowerCase().endsWith(".csv")) {
     await workbook.csv.read(Readable.from(buffer));
@@ -44,24 +59,39 @@ export async function parseSubmissionFile(
 
   const sheet = workbook.worksheets[0];
   const headerRow = sheet?.getRow(1);
-  const dataRow = sheet?.getRow(2);
-  if (!sheet || !headerRow || !dataRow) {
-    throw new Error("The uploaded file has no data row to read.");
+  if (!sheet || !headerRow) {
+    throw new Error("The uploaded file has no header row to read.");
   }
 
   const fieldByLabel = new Map(fields.map((field) => [normalizeLabel(field.label), field]));
-  const values: Record<string, string> = {};
+  const columnRoles = new Map<number, { kind: "period" } | { kind: "field"; fieldId: string }>();
   headerRow.eachCell((cell, columnNumber) => {
-    const field = fieldByLabel.get(normalizeLabel(String(cell.value ?? "")));
-    if (!field) return;
-    const raw = dataRow.getCell(columnNumber).value;
-    values[field.id] = raw === null || raw === undefined ? "" : String(raw);
+    const headerText = String(cell.value ?? "");
+    if (isPeriodHeader(headerText)) {
+      columnRoles.set(columnNumber, { kind: "period" });
+      return;
+    }
+    const field = fieldByLabel.get(normalizeLabel(headerText));
+    if (field) columnRoles.set(columnNumber, { kind: "field", fieldId: field.id });
   });
-  return values;
-}
 
-function normalizeLabel(label: string): string {
-  return label.trim().toLowerCase();
+  const rows: ParsedSubmissionRow[] = [];
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+    const dataRow = sheet.getRow(rowNumber);
+    if (isRowBlank(dataRow)) continue;
+
+    let period = "";
+    const values: Record<string, string> = {};
+    for (const [columnNumber, role] of columnRoles) {
+      const raw = dataRow.getCell(columnNumber).value;
+      const text = raw === null || raw === undefined ? "" : String(raw).trim();
+      if (role.kind === "period") period = text;
+      else values[role.fieldId] = text;
+    }
+    rows.push({ period, values });
+  }
+
+  return rows;
 }
 
 export interface FieldValidationIssue {
@@ -70,7 +100,6 @@ export interface FieldValidationIssue {
   message: string;
 }
 
-/** Required-field and basic type checks against a dataset's own field definitions. */
 export function validateFieldValues(
   fields: DatasetField[],
   values: Record<string, string>,
@@ -89,13 +118,6 @@ export function validateFieldValues(
   return issues;
 }
 
-/**
- * Every field with a kpiDefinitionId feeds a KpiValue once this submission
- * is approved (see the existing recordDecision() upsert pattern in
- * submissions.service.ts, reused unchanged by Phase 3's decision
- * endpoint) - this is where extractedValues actually comes from, computed
- * once at creation time rather than re-derived later.
- */
 export function buildSubmissionItems(
   fields: DatasetField[],
   values: Record<string, string>,
@@ -107,7 +129,7 @@ export function buildSubmissionItems(
     const trimmed = values[field.id]?.trim();
     if (!trimmed) continue;
     const value = Number(trimmed);
-    if (Number.isNaN(value)) continue; // already surfaced by validateFieldValues() when required
+    if (Number.isNaN(value)) continue;
     items.push({ kpiDefinitionId: field.kpiDefinitionId, period, value });
   }
   return items;

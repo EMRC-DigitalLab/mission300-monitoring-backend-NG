@@ -91,6 +91,8 @@ model User {
   /// invite form and userAccountSchema.designation exactly (no enum backing it).
   designation    String      @default("")
   role           RoleName
+  /// All granted roles. `role` remains the first/primary role for old consumers.
+  roles          RoleName[]  @default([])
   status         AccountStatus @default(PENDING)
   institutionId  String?
   institution    Institution? @relation(fields: [institutionId], references: [id])
@@ -114,7 +116,16 @@ model User {
   reviewingSubmissions Submission[]      @relation("SubmissionReviewer")
 
   @@index([institutionId])
+  @@index([roles], type: Gin)
   @@map("users")
+}
+
+model SecuritySettings {
+  id              String   @id @default("global")
+  allowSelfReview Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  @@map("security_settings")
 }
 
 // Read-only from the API's perspective - the real frontend (m300-frontend)

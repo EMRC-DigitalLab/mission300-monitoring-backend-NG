@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import * as argon2 from "argon2";
-import { AccountStatus } from "@prisma/client";
+import { AccountStatus, type RoleName } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
 import { toUserAccountResponse } from "@/modules/administration/overview/overview.mappers";
@@ -21,6 +21,8 @@ export class UsersService {
   }
 
   async invite(dto: InviteUserDto) {
+    const roles = dto.roles?.length ? dto.roles : dto.role ? [dto.role] : [];
+    if (!roles.length) throw new BadRequestException("Select at least one role.");
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
 
     // Same endpoint doubles as "resend invite" - the frontend has no
@@ -44,7 +46,8 @@ export class UsersService {
         data: {
           fullName: dto.name,
           designation: dto.designation,
-          role: dto.role,
+          role: roles[0],
+          roles,
           institutionId: institution.id,
         },
         include: { institution: true },
@@ -64,7 +67,8 @@ export class UsersService {
         email: dto.email,
         fullName: dto.name,
         designation: dto.designation,
-        role: dto.role,
+        role: roles[0],
+        roles,
         institutionId: institution.id,
         passwordHash,
       },
@@ -78,6 +82,20 @@ export class UsersService {
 
   setStatus(id: string, status: AccountStatus) {
     return this.prisma.user.update({ where: { id }, data: { status } });
+  }
+
+  async updateRoles(id: string, roles: RoleName[]) {
+    if (!roles.length || new Set(roles).size !== roles.length) {
+      throw new BadRequestException("Select at least one distinct role.");
+    }
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("User account not found.");
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { role: roles[0], roles },
+      include: { institution: true },
+    });
+    return toUserAccountResponse(user);
   }
 
   /**

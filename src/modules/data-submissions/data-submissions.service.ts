@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { ReviewDecisionType, SubmissionStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { StorageService } from "@/storage/storage.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
+import { SecuritySettingsService } from "@/modules/administration/security/security-settings.service";
 import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { workflowStatus } from "@/modules/data-submissions/workflow-status";
@@ -78,6 +79,7 @@ export class DataSubmissionsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly rabbitmq: RabbitmqService,
+    private readonly securitySettings: SecuritySettingsService,
   ) {}
 
   async getFilters() {
@@ -86,7 +88,7 @@ export class DataSubmissionsService {
       this.prisma.dataset.findMany({ orderBy: { name: "asc" } }),
       this.prisma.obligation.findMany({ select: { reportingPeriod: true }, distinct: ["reportingPeriod"] }),
       this.prisma.user.findMany({
-        where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+        where: { OR: [{ role: { in: ["DATA_REVIEWER", "VALIDATOR"] } }, { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } }], status: "ACTIVE" },
         orderBy: { fullName: "asc" },
       }),
     ]);
@@ -273,7 +275,7 @@ export class DataSubmissionsService {
     }
 
     const items = buildSubmissionItems(obligation.dataset.fields, dto.values, obligation.reportingPeriod);
-    const reviewerId = await this.pickReviewer();
+    const reviewerId = await this.pickReviewer(user.id);
 
     const submission = await this.prisma.submission.create({
       data: {
@@ -320,54 +322,97 @@ export class DataSubmissionsService {
     const sourceReference = dto.sourceReference?.trim();
     if (!sourceReference) throw new BadRequestException("Provide the source reference for this submission.");
 
-    let values: Record<string, string>;
+    let rows: { period: string; values: Record<string, string> }[];
     try {
-      values = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset.fields);
+      rows = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset.fields);
     } catch {
       throw new BadRequestException("Could not read the uploaded file - use the provided template.");
     }
+    if (rows.length === 0) {
+      throw new BadRequestException("The uploaded file has no data rows to submit.");
+    }
 
-    const issues = validateFieldValues(obligation.dataset.fields, values);
-    if (issues.length > 0) {
+    const resolved: { period: string; values: Record<string, string>; obligationId: string; institutionId: string }[] = [];
+    const unmatchedPeriods: string[] = [];
+    for (const row of rows) {
+      if (!row.period) {
+        throw new BadRequestException("Every row must have a Period value.");
+      }
+      if (row.period === obligation.reportingPeriod) {
+        resolved.push({ ...row, obligationId: obligation.id, institutionId: obligation.institutionId });
+        continue;
+      }
+      const matching = await this.prisma.obligation.findUnique({
+        where: {
+          institutionId_datasetId_reportingPeriod: {
+            institutionId: obligation.institutionId,
+            datasetId: obligation.dataset.id,
+            reportingPeriod: row.period,
+          },
+        },
+      });
+      if (!matching) {
+        unmatchedPeriods.push(row.period);
+        continue;
+      }
+      resolved.push({ ...row, obligationId: matching.id, institutionId: matching.institutionId });
+    }
+
+    if (resolved.length === 0) {
       throw new BadRequestException(
-        `The uploaded file has ${issues.length} problem${issues.length === 1 ? "" : "s"}: ` +
-          issues.map((issue) => issue.message).join(" "),
+        `No row matched a known reporting obligation for this institution and dataset. Periods in the file: ${unmatchedPeriods.join(", ")}.`,
       );
     }
 
-    const items = buildSubmissionItems(obligation.dataset.fields, values, obligation.reportingPeriod);
+    for (const row of resolved) {
+      const issues = validateFieldValues(obligation.dataset.fields, row.values);
+      if (issues.length > 0) {
+        throw new BadRequestException(
+          `Row for ${row.period} has ${issues.length} problem${issues.length === 1 ? "" : "s"}: ` +
+            issues.map((issue) => issue.message).join(" "),
+        );
+      }
+    }
+
     const stored = await this.storage.save("submissions", file);
-    const reviewerId = await this.pickReviewer();
+    const reviewerId = await this.pickReviewer(user.id);
 
-    const submission = await this.prisma.submission.create({
-      data: {
-        institutionId: obligation.institutionId,
-        submittedById: user.id,
-        method: "UPLOAD",
-        status: "PENDING",
-        obligationId: obligation.id,
-        sourceReference,
-        notes: dto.notes ?? "",
-        sourceFileUrl: stored.key,
-        originalFileName: stored.originalName,
-        reviewerId,
-        items: { create: items },
-      },
-    });
+    const created: { submissionId: string; version: number }[] = [];
+    for (const row of resolved) {
+      const items = buildSubmissionItems(obligation.dataset.fields, row.values, row.period);
+      const submission = await this.prisma.submission.create({
+        data: {
+          institutionId: row.institutionId,
+          submittedById: user.id,
+          method: "UPLOAD",
+          status: "PENDING",
+          obligationId: row.obligationId,
+          sourceReference,
+          notes: dto.notes ?? "",
+          sourceFileUrl: stored.key,
+          originalFileName: stored.originalName,
+          reviewerId,
+          items: { create: items },
+        },
+      });
+      await this.rabbitmq.publish("submission.uploaded", { submissionId: submission.id });
+      created.push({ submissionId: submission.id, version: submission.version });
+    }
 
-    // Notifies both the submitter (confirmation) and the reviewer pool -
-    // see NotificationsConsumer.notifySubmissionUploaded(). Manual-entry
-    // saves don't publish anything: a DRAFT isn't submitted for review
-    // yet (see saveManualEntry()'s comment), so there's nothing to notify
-    // anyone about.
-    await this.rabbitmq.publish("submission.uploaded", { submissionId: submission.id });
+    const primary = created.find((entry) => entry.submissionId) ?? created[0];
+    const skippedNote =
+      unmatchedPeriods.length > 0 ? ` ${unmatchedPeriods.length} row(s) were skipped (no matching obligation for: ${unmatchedPeriods.join(", ")}).` : "";
 
     return {
-      submissionId: submission.id,
-      version: submission.version,
+      submissionId: primary.submissionId,
+      version: primary.version,
       status: workflowStatus("pending-review"),
-      message: "Upload received. Backend validation passed and the submission is ready for review.",
-      nextUrl: `/data-submissions/validation/${submission.id}`,
+      message:
+        created.length === 1
+          ? "Upload received. Backend validation passed and the submission is ready for review."
+          : `Upload received. ${created.length} submissions were created from this file and are ready for review.${skippedNote}`,
+      nextUrl:
+        created.length === 1 ? `/data-submissions/validation/${primary.submissionId}` : "/data-submissions/validation",
     };
   }
 
@@ -377,7 +422,7 @@ export class DataSubmissionsService {
       include: { fields: true },
     });
     if (!dataset) throw new NotFoundException("Template not found.");
-    return generateTemplateBuffer(dataset.fields);
+    return generateTemplateBuffer(dataset.fields, dataset.frequency);
   }
 
   async getValidationQueue(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
@@ -429,6 +474,9 @@ export class DataSubmissionsService {
       include: { items: { include: { kpiDefinition: true } } },
     });
     if (!submission) throw new NotFoundException("Submission not found.");
+    if (submission.submittedById === user.id && !(await this.securitySettings.get()).allowSelfReview) {
+      throw new ForbiddenException("Self-review is disabled by the system administrator.");
+    }
     if (submission.status !== "PENDING") {
       throw new BadRequestException("This submission is not awaiting a decision.");
     }
@@ -503,9 +551,14 @@ export class DataSubmissionsService {
    * unassigned. Returns null if no reviewer-capable account exists yet
    * (a fresh system before anyone with that role has been invited).
    */
-  private async pickReviewer(): Promise<string | null> {
+  private async pickReviewer(submitterId: string): Promise<string | null> {
+    const { allowSelfReview } = await this.securitySettings.get();
     const reviewers = await this.prisma.user.findMany({
-      where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+      where: {
+        OR: [{ role: { in: ["DATA_REVIEWER", "VALIDATOR"] } }, { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } }],
+        status: "ACTIVE",
+        ...(allowSelfReview ? {} : { id: { not: submitterId } }),
+      },
       include: { _count: { select: { reviewingSubmissions: { where: { status: "PENDING" } } } } },
     });
     if (reviewers.length === 0) return null;

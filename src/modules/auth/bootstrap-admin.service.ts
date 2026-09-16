@@ -39,6 +39,7 @@ export class BootstrapAdminService implements OnModuleInit {
         email,
         fullName: "System Administrator",
         role: RoleName.SYSTEM_ADMINISTRATOR,
+        roles: [RoleName.SYSTEM_ADMINISTRATOR],
         status: AccountStatus.ACTIVE,
         passwordHash,
       },

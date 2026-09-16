@@ -91,7 +91,7 @@ export class StakeholdersService {
 
     const institutions = institutionRows.map((institution) => {
       const roles = uniqueSorted(
-        institution.users.map((user) => ROLE_LABELS[user.role] ?? user.role),
+        institution.users.flatMap((user) => (user.roles.length ? user.roles : [user.role]).map((role) => ROLE_LABELS[role] ?? role)),
       );
       const institutionDatasets = uniqueSorted([
         ...institution.ownedDatasets.map((dataset) => dataset.name),

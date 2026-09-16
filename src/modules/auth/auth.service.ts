@@ -74,6 +74,7 @@ export class AuthService {
         email: user.email,
         name: user.fullName,
         role: user.role,
+        roles: user.roles.length ? user.roles : [user.role],
         institutionId: user.institutionId,
       },
     };

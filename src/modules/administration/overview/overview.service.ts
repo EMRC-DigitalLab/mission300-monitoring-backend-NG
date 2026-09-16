@@ -111,13 +111,14 @@ export class OverviewService {
           .toLowerCase()
           .includes(search);
       const matchesInstitution = institutionFilter === "all" || user.institutionId === institutionFilter;
-      const matchesRole = !parsedRole || user.role === parsedRole;
+      const grantedRoles = user.roles.length ? user.roles : [user.role];
+      const matchesRole = !parsedRole || grantedRoles.includes(parsedRole);
       const matchesStatus = !parsedStatus || user.status === parsedStatus;
       const matchesPermission =
-        !parsedPermission || (roleDefByName.get(user.role)?.permissions.includes(parsedPermission) ?? false);
+        !parsedPermission || grantedRoles.some((role) => roleDefByName.get(role)?.permissions.includes(parsedPermission));
       const matchesScope =
         !parsedAccessScope || user.scopeAssignments.some((a) => a.level === parsedAccessScope);
-      const matchesModule = roleReachesModule(roleDefByName.get(user.role)?.modules ?? [], moduleCode);
+      const matchesModule = grantedRoles.some((role) => roleReachesModule(roleDefByName.get(role)?.modules ?? [], moduleCode));
 
       return (
         matchesSearch &&
@@ -144,7 +145,9 @@ export class OverviewService {
     // catalogue entry would be independent of a table search.
     const assignedUsersByRole = new Map<RoleName, number>();
     for (const user of allUsers) {
-      assignedUsersByRole.set(user.role, (assignedUsersByRole.get(user.role) ?? 0) + 1);
+      for (const role of user.roles.length ? user.roles : [user.role]) {
+        assignedUsersByRole.set(role, (assignedUsersByRole.get(role) ?? 0) + 1);
+      }
     }
 
     // Section D - Access Scope, scoped to users matching Section B's filters.
@@ -226,7 +229,7 @@ export class OverviewService {
     const roleLabelByName = new Map(roleDefs.map((r) => [r.role, r.label]));
     const activeByRole = ROLE_ORDER.map((role) => ({
       label: roleLabelByName.get(role) ?? role,
-      count: activeUsers.filter((u) => u.role === role).length,
+      count: activeUsers.filter((u) => (u.roles.length ? u.roles : [u.role]).includes(role)).length,
     }));
 
     const pendingCount = allUsers.filter((u) => u.status === AccountStatus.PENDING).length;
@@ -235,9 +238,9 @@ export class OverviewService {
 
     const permissionsByRole = new Map(roleDefs.map((r) => [r.role, r.permissions]));
     const hasApprove = (u: (typeof allUsers)[number]) =>
-      permissionsByRole.get(u.role)?.includes(Permission.APPROVE) ?? false;
+      (u.roles.length ? u.roles : [u.role]).some((role) => permissionsByRole.get(role)?.includes(Permission.APPROVE));
     const hasAdminister = (u: (typeof allUsers)[number]) =>
-      permissionsByRole.get(u.role)?.includes(Permission.ADMINISTER) ?? false;
+      (u.roles.length ? u.roles : [u.role]).some((role) => permissionsByRole.get(role)?.includes(Permission.ADMINISTER));
     const approveCount = activeUsers.filter(hasApprove).length;
     const administerCount = activeUsers.filter(hasAdminister).length;
     const elevatedCount = activeUsers.filter((u) => hasApprove(u) || hasAdminister(u)).length;

@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { RoleName, ScopeLevel } from "@prisma/client";
 import { parseKebabEnum } from "@/common/utils/enum-casing";
 
@@ -34,8 +34,21 @@ export class InviteUserDto {
   @Transform(({ value }) =>
     typeof value === "string" ? parseKebabEnum(value, Object.values(RoleName), "role") : value,
   )
+  @IsOptional()
   @IsEnum(RoleName)
-  role!: RoleName;
+  role?: RoleName;
+
+  @Transform(({ value }) =>
+    Array.isArray(value)
+      ? value.map((role) => typeof role === "string" ? parseKebabEnum(role, Object.values(RoleName), "roles") : role)
+      : value,
+  )
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(RoleName, { each: true })
+  roles?: RoleName[];
 
   @Transform(({ value }) =>
     typeof value === "string" ? parseKebabEnum(value, Object.values(ScopeLevel), "accessScope") : value,
