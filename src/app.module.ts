@@ -55,7 +55,6 @@ import { LearningLogModule } from "@/modules/learning-log/learning-log.module";
         transport: process.env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     RabbitmqModule,
     StorageModule,
@@ -88,7 +87,6 @@ import { LearningLogModule } from "@/modules/learning-log/learning-log.module";
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Then, if a route carries @Roles(...), the caller's role must match.
     { provide: APP_GUARD, useClass: RolesGuard },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Auto-logs any route tagged @AuditAction(...) to audit_log_entries.
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
   ],
