@@ -24,10 +24,10 @@ jobs:
     outputs:
       image: ${{ steps.meta.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -44,7 +44,7 @@ jobs:
           echo "image=ghcr.io/$REPO_LOWER:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/Dockerfile
@@ -66,10 +66,10 @@ jobs:
     environment: staging
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Copy the compose file to the VPS
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
@@ -79,7 +79,7 @@ jobs:
           target: "/opt/m300-backend"
 
       - name: Deploy image to Hostinger VPS over SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
@@ -104,6 +104,12 @@ jobs:
             POSTGRES_DB=${{ secrets.POSTGRES_DB }}
             RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
             RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+            RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
+            EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+            BACKEND_URL=${{ secrets.BACKEND_URL }}
+            BOOTSTRAP_ADMIN_EMAIL=${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+            BOOTSTRAP_ADMIN_PASSWORD=${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
             API_HOST_PORT=8099
             ENVEOF
 
@@ -123,10 +129,8 @@ jobs:
               --env-file staging/.env up -d
             docker image prune -f
 
-            # No public domain wired up yet (api is loopback-only, see
-            # docker-compose.prod.yml) - checked from inside the VPS itself.
-            # Switch to scripts/health-check.sh against a real domain once
-            # DEPLOY_HEALTH_CHECK_URL is set - see .env.github's notes.
+            # Internal check first - confirms the container we just started
+            # is actually serving, independent of DNS/nginx/TLS.
             HEALTH_URL="http://127.0.0.1:8099/health"
             for attempt in $(seq 1 30); do
               status=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
@@ -140,6 +144,12 @@ jobs:
             echo "Health check failed after 30 attempts: $HEALTH_URL"
             exit 1
 
+      - name: External health check (through DNS + nginx + TLS)
+        # Runs from the GitHub runner, not the VPS - this is the only check
+        # that actually proves the public path works end-to-end (the
+        # internal check above only proves the container itself is up).
+        run: bash scripts/health-check.sh "${{ secrets.DEPLOY_HEALTH_CHECK_URL }}"
+
   deploy-production:
     name: Deploy → Production
     needs: build-and-push
@@ -147,10 +157,10 @@ jobs:
     environment: production
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Copy the compose file to the VPS
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
@@ -160,7 +170,7 @@ jobs:
           target: "/opt/m300-backend"
 
       - name: Deploy image to Hostinger VPS over SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
@@ -185,6 +195,12 @@ jobs:
             POSTGRES_DB=${{ secrets.POSTGRES_DB }}
             RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
             RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+            RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
+            EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+            BACKEND_URL=${{ secrets.BACKEND_URL }}
+            BOOTSTRAP_ADMIN_EMAIL=${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+            BOOTSTRAP_ADMIN_PASSWORD=${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
             API_HOST_PORT=8100
             ENVEOF
 
@@ -212,3 +228,6 @@ jobs:
             done
             echo "Health check failed after 30 attempts: $HEALTH_URL"
             exit 1
+
+      - name: External health check (through DNS + nginx + TLS)
+        run: bash scripts/health-check.sh "${{ secrets.DEPLOY_HEALTH_CHECK_URL }}"

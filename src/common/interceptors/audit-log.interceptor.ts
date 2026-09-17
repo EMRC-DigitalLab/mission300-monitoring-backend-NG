@@ -1,16 +1,34 @@
 import { Injectable, type NestInterceptor, type ExecutionContext, type CallHandler } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { tap } from "rxjs/operators";
-import type { Observable } from "rxjs";
+import { catchError, map, mergeMap } from "rxjs/operators";
+import { from, throwError, type Observable } from "rxjs";
+import { AuditResult } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { AUDIT_ACTION_KEY } from "@/common/decorators/audit-action.decorator";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 
 /**
- * Writes an AuditLogEntry after any mutating endpoint tagged with
- * @AuditAction succeeds. This keeps audit logging out of every individual
- * service method - one interceptor, applied globally, catches every tagged
- * write. Failed requests are not logged here (nothing happened to record).
+ * Writes an AuditLogEntry for any mutating endpoint tagged with
+ * @AuditAction - both when it succeeds and when it throws, since a genuine
+ * failure (result: FAILURE in the frontend's audit contract - see
+ * overview.mappers.ts's toAuditEventResponse) is itself something the real
+ * audit trail needs to show, not just successful writes.
+ *
+ * "rejected" (a successful HTTP call that records a negative business
+ * decision, e.g. a submission rejection) is derived per-action via
+ * deriveResult() below, since the interceptor otherwise has no way to know
+ * a 200 response represents a rejection rather than an approval.
+ *
+ * The write is awaited as part of the observable chain (mergeMap), not
+ * fired with a bare `void` promise. A fire-and-forget write lets the HTTP
+ * response return before it resolves - the underlying pg driver adapter
+ * (@prisma/adapter-pg) then reuses the same connection for the NEXT
+ * request's own queries while this write is still in flight ("Calling
+ * client.query() when the client is already executing a query" is pg's own
+ * warning for this), and the write can silently lose the race and never
+ * land. Reproduced directly: a rapid create->create->update->delete
+ * sequence against a fresh DB left rows missing under the old `void`
+ * version and wrote all of them correctly once awaited inline here.
  */
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
@@ -23,23 +41,72 @@ export class AuditLogInterceptor implements NestInterceptor {
     const action = this.reflector.get<string | undefined>(AUDIT_ACTION_KEY, context.getHandler());
     if (!action) return next.handle();
 
-    const request = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: AuthenticatedUser; params?: Record<string, string> }>();
+    if (!request.user) return next.handle();
+    const actorId = request.user.id;
+    const fallbackEntityId = request.params?.id ?? "unknown";
 
     return next.handle().pipe(
-      tap((result: unknown) => {
-        if (!request.user) return;
+      mergeMap((result: unknown) => {
         const entity = result as { id?: string } | undefined;
-
-        void this.prisma.auditLogEntry.create({
-          data: {
-            actorId: request.user.id,
-            action,
-            entityType: action.split(".")[0],
-            entityId: entity?.id ?? "unknown",
-            after: (result ?? undefined) as never,
-          },
-        });
+        return from(
+          this.prisma.auditLogEntry.create({
+            data: {
+              actorId,
+              action,
+              entityType: action.split(".")[0],
+              entityId: entity?.id ?? fallbackEntityId,
+              after: (redactSensitiveFields(result) ?? undefined) as never,
+              result: deriveResult(action, result),
+            },
+          }),
+        ).pipe(map(() => result));
       }),
+      catchError((error: unknown) =>
+        from(
+          this.prisma.auditLogEntry.create({
+            data: {
+              actorId,
+              action,
+              entityType: action.split(".")[0],
+              entityId: fallbackEntityId,
+              result: AuditResult.FAILURE,
+            },
+          }),
+        ).pipe(mergeMap(() => throwError(() => error))),
+      ),
     );
   }
+}
+
+const SENSITIVE_KEYS = ["passwordHash", "tokenHash"];
+
+function stripSensitiveKeys(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([key]) => !SENSITIVE_KEYS.includes(key),
+  );
+  return Object.fromEntries(entries);
+}
+
+function redactSensitiveFields(result: unknown): unknown {
+  const top = stripSensitiveKeys(result);
+  if (!top || typeof top !== "object" || Array.isArray(top)) return top;
+  const entries = Object.entries(top as Record<string, unknown>).map(([key, value]) => [
+    key,
+    stripSensitiveKeys(value),
+  ]);
+  return Object.fromEntries(entries);
+}
+
+// Only submission.decision_recorded can currently produce "rejected" - its
+// response is the updated Submission, whose `status` reflects the decision.
+function deriveResult(action: string, result: unknown): AuditResult {
+  if (action === "submission.decision_recorded") {
+    const status = (result as { status?: string } | undefined)?.status;
+    if (status === "REJECTED") return AuditResult.REJECTED;
+  }
+  return AuditResult.SUCCESS;
 }

@@ -27,6 +27,42 @@ enum RoleName {
   READ_ONLY_USER
 }
 
+// PENDING: invited but hasn't set a password yet (cannot log in).
+// ACTIVE: normal, can log in. INACTIVE/SUSPENDED: admin-disabled, cannot
+// log in - see auth.service.ts's login() for exactly which states block it.
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Permission {
+  VIEW
+  SUBMIT
+  EDIT
+  VALIDATE
+  APPROVE
+  EXPORT
+  ADMINISTER
+}
+
+// Display/reference metadata for the 7 fixed roles - NOT a dynamic role
+// system. The frontend has no create/edit/delete-role endpoint anywhere;
+// this table exists purely so GET /administration can return label,
+// description, permissions and reachable modules per role without hardcoding
+// display strings in application code. Seeded once (see prisma/seed.ts),
+// never written to by any API route.
+model RoleDefinition {
+  role        RoleName     @id
+  label       String
+  description String
+  permissions Permission[]
+  modules     String[]
+
+  @@map("role_definitions")
+}
+
 model Institution {
   id            String   @id @default(cuid())
   name          String
@@ -37,6 +73,11 @@ model Institution {
   users         User[]
   submissions   Submission[]
   dataCustodians DataCustodian[]
+  ownedDatasets Dataset[]       @relation("DatasetOwner")
+  obligations   Obligation[]
+  discoPerformanceRecords DiscoPerformanceRecord[]
+  discoServiceBands       DiscoServiceBand[]
+  discoDeliveryMilestones DiscoDeliveryMilestone[]
 
   @@map("institutions")
 }
@@ -46,20 +87,113 @@ model User {
   email          String      @unique
   passwordHash   String
   fullName       String
+  /// Job title, e.g. "Monitoring Officer" - free text, matches the frontend's
+  /// invite form and userAccountSchema.designation exactly (no enum backing it).
+  designation    String      @default("")
   role           RoleName
-  isActive       Boolean     @default(true)
+  /// All granted roles. `role` remains the first/primary role for old consumers.
+  roles          RoleName[]  @default([])
+  status         AccountStatus @default(PENDING)
   institutionId  String?
   institution    Institution? @relation(fields: [institutionId], references: [id])
+  /// Set on every successful login (see auth.service.ts) - null for an
+  /// invited account that has never signed in, matching userAccountSchema's
+  /// lastLogin exactly.
+  lastLogin      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
   submissions      Submission[]      @relation("SubmittedBy")
   reviewDecisions  ReviewDecision[]  @relation("ReviewedBy")
   auditLogEntries  AuditLogEntry[]
-  reports          Report[]
+  savedReports     SavedReport[]
+  learningLogEntries LearningLogEntry[]
+  uploadedFiles    UploadedFile[]
+  webhookSubscriptions WebhookSubscription[]
+  passwordResetTokens  PasswordResetToken[]
+  scopeAssignments     ScopeAssignment[]
+  focalForObligations  Obligation[]
+  reviewingSubmissions Submission[]      @relation("SubmissionReviewer")
 
   @@index([institutionId])
+  @@index([roles], type: Gin)
   @@map("users")
+}
+
+model SecuritySettings {
+  id              String   @id @default("global")
+  allowSelfReview Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  @@map("security_settings")
+}
+
+// Read-only from the API's perspective - the real frontend (m300-frontend)
+// has no create/edit/delete UI for this anywhere, only a display table
+// (Administration > Access Scope). Matches scopeAssignmentSchema in
+// src/api/schemas/administration.ts exactly.
+enum ScopeLevel {
+  NATIONAL
+  STATE
+  DISTRIBUTION_COMPANY
+  INSTITUTION
+  PROGRAMME
+  PROJECT
+  DATASET
+  INDICATOR
+}
+
+model ScopeAssignment {
+  id             String     @id @default(cuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  level          ScopeLevel
+  /// The specific state, DisCo, programme, etc., e.g. "Ikeja DisCo".
+  scope          String
+  responsibility String
+  effectiveFrom  DateTime
+  /// Null for an open-ended assignment.
+  effectiveTo    DateTime?
+  active         Boolean    @default(true)
+
+  @@index([userId])
+  @@map("scope_assignments")
+}
+
+// One mechanism, two callers: an invited user setting their first password,
+// and an existing user resetting a forgotten one. Both just need to prove
+// they own the email, then set a password - see AuthService.setPassword().
+// tokenHash, never the raw token (same principle as passwordHash) - a stolen
+// DB row can't be replayed as a working link.
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// Generic file storage record - any feature that lets a user upload an
+// arbitrary file (not the structured submissions/upload flow, which parses
+// its file into SubmissionItems instead of storing it as one of these)
+// goes through StorageService + this table.
+model UploadedFile {
+  id           String   @id @default(cuid())
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  storageKey   String
+  originalName String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  @@index([uploadedById])
+  @@map("uploaded_files")
 }
 
 model DataCustodian {
@@ -79,16 +213,50 @@ model DataCustodian {
 model Pillar {
   id          String   @id @default(cuid())
   name        String   @unique
+  /// Matches pillarIdSchema in m300-frontend/src/api/schemas/common.ts
+  /// exactly (one of 6 fixed kebab-case codes, e.g. "generation-network") -
+  /// kept as its own column rather than repurposing `id` so existing FKs
+  /// (KpiDefinition.pillarId etc.) don't need to change.
+  slug        String   @unique
   description String?
 
   kpis        KpiDefinition[]
+  datasets    Dataset[]
+  programmes  Programme[]
+  projects    Project[]
+  bottlenecks Bottleneck[]
 
   @@map("pillars")
 }
 
+// Matches readinessTierSchema in m300-frontend/src/api/schemas/kpi-
+// explorer.ts exactly.
+enum KpiReadinessTier {
+  CORE
+  SUPPORTING
+  FUTURE
+}
+
+// Real contract requires a `direction` on every KPI profile
+// (improvementDirectionSchema) but no mutation endpoint (create or edit)
+// ever sets it - there's no way to configure this via the API at all, so
+// it's a stored default rather than something PATCH/POST accept.
+enum KpiDirection {
+  HIGHER_IS_BETTER
+  LOWER_IS_BETTER
+}
+
+// Matches the profile's targetBasis enum ('level'|'growth-rate'|'none') -
+// see kpiProfileSchema.targetBasis in kpi-explorer.ts.
+enum KpiTargetBasis {
+  LEVEL
+  GROWTH_RATE
+  NONE
+}
+
 model KpiDefinition {
   id          String   @id @default(cuid())
-  code        String   @unique // stable machine key, e.g. "access-rate-national"
+  code        String   @unique // the real contract's human-facing `id` (e.g. "M300-GEN-004") - Prisma's own cuid `id` above is purely internal/FK plumbing
   name        String
   unit        String
   pillarId    String
@@ -97,11 +265,63 @@ model KpiDefinition {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // --- KPI Explorer profile metadata (all editable via PATCH .../kpis/:id,
+  // except direction - see KpiDirection above) ---
+  category           String            @default("")
+  readiness          KpiReadinessTier  @default(CORE)
+  definition         String            @default("")
+  formula            String            @default("")
+  aggregation        String            @default("")
+  frequency          String            @default("")
+  disaggregation     String            @default("")
+  limitations        String            @default("")
+  sourceInstitution  String            @default("")
+  sourceDataset      String            @default("")
+  sourceReference    String            @default("")
+  version            String            @default("1")
+  direction          KpiDirection      @default(HIGHER_IS_BETTER)
+
+  // --- Baseline/target (the single primary values every existing consumer
+  // renders) - `targetPoints` below is the separate, additive periodic
+  // checkpoint history (kpiTargetPointSchema). validationStatus/confidence/
+  // current/history are NEVER stored - always derived at read time from
+  // KpiValue + the Submission status that produced it, matching the real
+  // contract's own rule that those only change via an approved submission.
+  baseline           Decimal?
+  baselineLabel      String            @default("")
+  target             Decimal?
+  targetLabel        String            @default("")
+  targetDate         String?
+  targetBasis        KpiTargetBasis?
+  targetBasisLabel   String?
+  /// Shape: { standard, inclusions[], exclusions[], periodType, assumptions[] } - see externalStandardAlignmentSchema. Null for the common case of no external standard mapped.
+  externalStandardAlignment Json?
+
   values      KpiValue[]
   submissionItems SubmissionItem[]
+  datasetFields   DatasetField[]
+  targetPoints    KpiTargetPoint[]
 
   @@index([pillarId])
   @@map("kpi_definitions")
+}
+
+// One periodic target checkpoint (kpiTargetPointSchema) - additive to
+// KpiDefinition's own single primary target/targetLabel/targetDate above,
+// e.g. 2026 and 2028 milestones on the way to a 2030 goal. Replace-all
+// semantics on PATCH .../kpis/:id (see updateKpiMetadataRequestSchema's
+// own comment) - delete every row for a KPI and recreate from the
+// request's `targets[]`, rather than trying to diff/match periods.
+model KpiTargetPoint {
+  id              String        @id @default(cuid())
+  kpiDefinitionId String
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Cascade)
+  period          String
+  value           Decimal
+  label           String
+
+  @@index([kpiDefinitionId])
+  @@map("kpi_target_points")
 }
 
 // The "live" value shown on dashboards. Written ONLY when the submission
@@ -121,6 +341,108 @@ model KpiValue {
 
   @@index([kpiDefinitionId, period])
   @@map("kpi_values")
+}
+
+// --- Data Submissions & Validation ---------------------------------------
+// Ground truth: m300-frontend's src/api/schemas/data-submissions/*.ts and
+// src/mocks/data/data-submissions/*.ts. A submission is never freeform -
+// it always exists against an Obligation (institution x dataset x
+// reporting period, known in advance, with a due date). Fulfilling an
+// obligation (an accepted submission) removes it from the outstanding
+// obligations list - see obligation-status computation in
+// data-submissions.mappers.ts, not a stored column here.
+
+// What an institution can be asked to report - the record behind
+// Obligation.dataset and the manual-entry form's field definitions.
+model Dataset {
+  id                 String   @id @default(cuid())
+  name               String
+  purpose            String
+  pillarId           String
+  pillar             Pillar   @relation(fields: [pillarId], references: [id])
+  requiredDataPoints String[]
+  frequency          String // e.g. "Quarterly" - free text, matches the real contract exactly
+  ownerInstitutionId String?
+  ownerInstitution   Institution? @relation("DatasetOwner", fields: [ownerInstitutionId], references: [id])
+  // Used to build the template download URL (GET /data-submissions/templates/:fileName)
+  // and the upload form's accepted-file-types display - the real contract
+  // generates the XLSX fresh per request from these field definitions,
+  // it is not a stored file.
+  templateFileName   String
+  templateVersion    Int      @default(1)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fields             DatasetField[]
+  obligations        Obligation[]
+
+  @@index([pillarId])
+  @@map("datasets")
+}
+
+enum DatasetFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  TEXTAREA
+}
+
+// One field of a dataset's manual-entry form - what makes that form
+// "entirely server-driven" per the real contract (manualEntryDefinitionSchema).
+model DatasetField {
+  id              String           @id @default(cuid())
+  datasetId       String
+  dataset         Dataset          @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  sectionId       String // groups fields into entrySections for the manual-entry form
+  sectionTitle    String
+  label           String
+  helpText        String?
+  type            DatasetFieldType
+  required        Boolean          @default(true)
+  unit            String?
+  order           Int              @default(0)
+  // [{ value, label }] for SELECT fields - matches entryFieldSchema.options exactly
+  options         Json?
+  // Which KPI this field's value ultimately feeds (nullable - some fields
+  // are descriptive only, e.g. sourceReference-adjacent notes).
+  kpiDefinitionId String?
+  kpiDefinition   KpiDefinition?   @relation(fields: [kpiDefinitionId], references: [id])
+
+  @@index([datasetId])
+  @@map("dataset_fields")
+}
+
+// The "what's owed, by when" record - institution x dataset x reporting
+// period. Read-heavy: status/availableActions are computed at read time
+// from the linked submission's state, not stored (same pattern as
+// BrandingSettings/administration summary cards elsewhere in this schema).
+model Obligation {
+  id                   String       @id @default(cuid())
+  institutionId        String
+  institution          Institution  @relation(fields: [institutionId], references: [id])
+  datasetId            String
+  dataset              Dataset      @relation(fields: [datasetId], references: [id])
+  reportingPeriod      String // e.g. "Q3 2025" - free text, matches the real contract
+  dueDate              DateTime
+  focalPersonId        String?
+  focalPerson          User?        @relation(fields: [focalPersonId], references: [id])
+  // Set only once a submission against this obligation is approved or
+  // provisionally approved - see toObligationView() in
+  // data-submissions.mappers.ts for the "removed from the outstanding
+  // list once fulfilled" behavior this drives.
+  acceptedSubmissionId String?      @unique
+  acceptedSubmission   Submission?  @relation("AcceptedSubmission", fields: [acceptedSubmissionId], references: [id])
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  submissions          Submission[] @relation("ObligationSubmissions")
+
+  @@unique([institutionId, datasetId, reportingPeriod])
+  @@index([institutionId])
+  @@index([datasetId])
+  @@map("obligations")
 }
 
 // --- Submissions: draft -> pending -> under_review -> decision ----------
@@ -153,13 +475,37 @@ model Submission {
   previousVersion   Submission?    @relation("SubmissionVersions", fields: [previousVersionId], references: [id])
   nextVersion       Submission?    @relation("SubmissionVersions")
   sourceFileUrl  String?
+  // Nullable for now - populated once the real create/upload flow (Phase 2
+  // of the Data Submissions rebuild) replaces the old direct-create path,
+  // which has no obligation concept at all.
+  obligationId   String?
+  obligation     Obligation?       @relation("ObligationSubmissions", fields: [obligationId], references: [id])
+  // Set by the real upload/entry flow - matches manualEntryRequestSchema/
+  // the upload endpoint's multipart fields exactly.
+  sourceReference String?
+  notes          String?
+  // The user's original file name (StorageService.save()'s `originalName`) -
+  // separate from sourceFileUrl (the storage key) since SubmissionDetail.
+  // fileName in the real contract must show what the submitter actually
+  // called it, not a generated storage path.
+  originalFileName String?
+  // Assigned at upload time (see DataSubmissionsService.pickReviewer()) -
+  // there's no explicit "assign a reviewer" action anywhere in the real
+  // contract, but validationQueueItemSchema.reviewer is a required,
+  // stable-per-submission field, so it has to be decided once and kept,
+  // not recomputed differently on every read.
+  reviewerId     String?
+  reviewer       User?             @relation("SubmissionReviewer", fields: [reviewerId], references: [id])
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
   items          SubmissionItem[]
   reviewDecisions ReviewDecision[]
+  acceptedForObligation Obligation? @relation("AcceptedSubmission")
 
   @@index([institutionId, status])
+  @@index([obligationId])
+  @@index([reviewerId])
   @@map("submissions")
 }
 
@@ -199,105 +545,432 @@ model ReviewDecision {
   @@map("review_decisions")
 }
 
-// --- Programs / projects / bottlenecks ----------------------------------
+// --- Programs / projects / milestones --------------------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/programs.ts. The consolidated
+// Programmes -> Projects -> (Milestones, Bottlenecks) drill-down - the old
+// standalone "Implementation Register" spec and the old standalone
+// "Bottlenecks & Exceptions" page were both folded into this one page on the
+// frontend (see that file's own header comment). Bottlenecks itself is a
+// separate Prisma model (Phase B of this rebuild, not yet added) - Project/
+// Programme/Milestone.bottleneckCategory below are stored, not derived, and
+// have no mutation endpoint that sets them (same pattern as KpiDefinition.
+// direction) until Phase B wires a real linkage.
 
-model Program {
-  id          String    @id @default(cuid())
-  name        String
-  description String?
-  pillarId    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+enum ExecutionStatus {
+  ON_TRACK
+  AT_RISK
+  DELAYED
+  BLOCKED
+  COMPLETED
+}
 
-  projects    Project[]
+enum RegisterPriority {
+  PRIORITY
+  STANDARD
+}
 
-  @@map("programs")
+// Reused across Programme/Project/Milestone - matches validationStatusSchema
+// in kpi-explorer.ts (imported into programs.ts for the same vocabulary).
+// Unlike KPI Explorer's own validationStatus (always derived from a
+// Submission), this one is a genuinely stored field here - there is no
+// submission/approval pipeline behind Programs records.
+enum ValidationStatus {
+  CONFIRMED
+  PUBLIC_SOURCE
+  REQUIRES_VALIDATION
+  PROVISIONAL
+  FUTURE
+}
+
+enum ProgramType {
+  GRANT
+  CONCESSIONAL_LOAN
+  PPP
+  GOVERNMENT_FUNDED
+  BLENDED_FINANCE
+}
+
+enum FundingStatus {
+  COMMITTED
+  DISBURSING
+  FULLY_DISBURSED
+  AT_RISK
+  UNFUNDED
+}
+
+// Readiness of a project not yet in active delivery - distinct from
+// lifecycleStage (identification->operations), which only applies once a
+// project IS active. Null once active.
+enum PipelineReadiness {
+  PIPELINE
+  FEASIBILITY_STUDY
+  INVESTMENT_READY
+}
+
+enum LifecycleStage {
+  IDENTIFICATION
+  DESIGN
+  PROCUREMENT
+  IMPLEMENTATION
+  COMMISSIONING
+  OPERATIONS
+}
+
+// Matches bottleneckCategorySchema in bottlenecks.ts (imported into
+// programs.ts) - defined here ahead of Phase B's Bottleneck model since
+// Programme/Project/Milestone all carry a nullable bottleneckCategory.
+enum BottleneckCategory {
+  FINANCING
+  PROCUREMENT
+  PERMITTING
+  REGULATORY_APPROVAL
+  COORDINATION
+  TECHNICAL_CONSTRAINT
+  IMPLEMENTATION_DELAY
+  DATA_OR_REPORTING
+}
+
+model Programme {
+  id                     String            @id @default(cuid())
+  name                   String
+  leadInstitution        String
+  supportingInstitutions String[]          @default([])
+  pillarId               String
+  pillar                 Pillar            @relation(fields: [pillarId], references: [id])
+  objectives             String
+  /// Null where financing is held at project level rather than programme level.
+  financing              String?
+  status                 ExecutionStatus   @default(ON_TRACK)
+  priority               RegisterPriority  @default(STANDARD)
+  startDate              DateTime
+  endDate                DateTime
+  bottleneckCategory     BottleneckCategory?
+  validationStatus       ValidationStatus  @default(PROVISIONAL)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt // serves as the contract's `lastUpdate`
+
+  projects               Project[]
+
+  @@index([pillarId])
+  @@map("programmes")
 }
 
 model Project {
-  id          String       @id @default(cuid())
-  programId   String
-  program     Program      @relation(fields: [programId], references: [id])
-  name        String
-  status      String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                 String              @id @default(cuid())
+  programmeId        String
+  programme          Programme           @relation(fields: [programmeId], references: [id])
+  name               String
+  owner              String
+  /// The named person leading delivery, distinct from `owner` (the accountable institution).
+  leadName           String
+  location           String
+  /// Not in the real projectRecordSchema contract - the Executive Overview's
+  /// ongoingProjects rows need coordinates for the delivery map, and the
+  /// frontend does not geocode location strings, so this is captured here.
+  latitude           Float
+  longitude          Float
+  coverage           String
+  /// The workbook's "M300 Pillar Alignment" - a project can align to a
+  /// different pillar than its parent programme's primary pillar.
+  pillarId           String
+  pillar              Pillar             @relation(fields: [pillarId], references: [id])
+  /// Not in the real projectRecordSchema contract - State/DisCo's own
+  /// coverage-by-state aggregation needs a real, explicitly-tagged state
+  /// (the spec is explicit: never infer a state from the free-text
+  /// `location` string above). Null means "not yet tagged to a state" -
+  /// such a project honestly does not contribute to any state's coverage
+  /// numbers, rather than being force-matched by guesswork.
+  stateId            String?
+  state               State?             @relation(fields: [stateId], references: [id])
+  lifecycleStage     LifecycleStage      @default(IDENTIFICATION)
+  programType        ProgramType         @default(GOVERNMENT_FUNDED)
+  /// Null where funding has not yet been secured.
+  fundingSource      String?
+  fundingStructure   String              @default("To be confirmed")
+  fundingStatus      FundingStatus       @default(UNFUNDED)
+  /// Null once a project is active (design stage or beyond).
+  pipelineReadiness  PipelineReadiness?
+  /// The status expected at this point in the plan, shown alongside `currentStatus`.
+  projectedStatus    ExecutionStatus     @default(ON_TRACK)
+  currentStatus      ExecutionStatus     @default(ON_TRACK)
+  startDate          DateTime
+  /// Null where the source register records no projected completion date -
+  /// the NISO project register leaves it blank for most of its entries, and
+  /// a placeholder date would read as a real delivery commitment.
+  endDate            DateTime?
+  evidenceUrl        String?
+  bottleneckCategory BottleneckCategory?
+  /// The workbook's "Comment - Issues/Main Risk/Bottlenecks" narrative.
+  comment            String              @default("")
+  suggestion         String              @default("")
+  validationStatus   ValidationStatus    @default(PROVISIONAL)
 
-  bottlenecks Bottleneck[]
+  // --- profile (projectProfileSchema) ---
+  description        String              @default("")
+  budgetUsd          Decimal             @default(0)
+  disbursedUsd       Decimal             @default(0)
+  contractor         String?
+  contactName        String              @default("")
+  contactEmail       String              @default("")
 
-  @@index([programId])
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  statusHistory      ProjectStatusHistoryEntry[]
+  milestones         Milestone[]
+  documents          ProjectDocument[]
+  updates            ProjectUpdate[]
+
+  @@index([programmeId])
+  @@index([pillarId])
+  @@index([stateId])
   @@map("projects")
 }
 
-enum BottleneckSeverity {
-  LOW
-  MEDIUM
-  HIGH
+/// One reporting-cycle snapshot in a project's status trail - appended
+/// whenever `currentStatus` actually changes value, not overwritten.
+model ProjectStatusHistoryEntry {
+  id        String          @id @default(cuid())
+  projectId String
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  period    String
+  status    ExecutionStatus
+  createdAt DateTime        @default(now())
+
+  @@index([projectId])
+  @@map("project_status_history")
+}
+
+model ProjectDocument {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label     String
+  url       String
+
+  @@index([projectId])
+  @@map("project_documents")
+}
+
+model ProjectUpdate {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date      DateTime
+  note      String
+
+  @@index([projectId])
+  @@map("project_updates")
+}
+
+model Milestone {
+  id                 String              @id @default(cuid())
+  projectId          String
+  project            Project             @relation(fields: [projectId], references: [id])
+  name               String
+  priority           RegisterPriority    @default(STANDARD)
+  expectedDate       DateTime
+  /// Null until the milestone is actually completed.
+  actualDate         DateTime?
+  status             ExecutionStatus     @default(ON_TRACK)
+  leadInstitution    String
+  evidenceUrl        String?
+  risk               String              @default("")
+  nextAction         String              @default("")
+  bottleneckCategory BottleneckCategory?
+  validationStatus   ValidationStatus    @default(PROVISIONAL)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([projectId])
+  @@map("milestones")
+}
+
+// --- Bottlenecks & Exceptions (Programs Phase B) ---------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/bottlenecks.ts. Distinct from
+// Executive Overview's own lighter "Bottleneck" shape and its own severity
+// vocabulary (critical/regulatory/delayed/blocked) - this is the full,
+// authoritative register. `linkedRecord` is free text (an indicator,
+// programme or project reference); when it exactly equals a real Programme
+// or Project id, that record's own `bottlenecks[]` field is derived by
+// matching against it at read time (see programs.mappers.ts) rather than a
+// stored join - same "derive, don't duplicate" rule as everywhere else in
+// this schema. `ageDays`/`daysOverdue` are likewise never stored, always
+// computed from `dateRaised`/`dueDate` at read time.
+
+enum RegisterSeverity {
   CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BottleneckStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  ESCALATED
+  RESOLVED
+}
+
+enum EscalationStatus {
+  NOT_ESCALATED
+  ESCALATED
+  OVERDUE
+  RESOLVED
+}
+
+enum EscalationLevel {
+  PROGRAMME_MANAGEMENT
+  INSTITUTION_LEADERSHIP
+  STEERING_COMMITTEE
+  MINISTERIAL
 }
 
 model Bottleneck {
-  id          String             @id @default(cuid())
-  projectId   String?
-  project     Project?           @relation(fields: [projectId], references: [id])
-  title       String
-  description String
-  severity    BottleneckSeverity
-  category    String
-  status      String             @default("open")
-  raisedAt    DateTime           @default(now())
-  resolvedAt  DateTime?
+  id               String             @id @default(cuid())
+  issue            String
+  category         BottleneckCategory
+  severity         RegisterSeverity
+  pillarId         String
+  pillar           Pillar             @relation(fields: [pillarId], references: [id])
+  linkedRecord     String             @default("")
+  institution      String
+  dateRaised       DateTime           @default(now())
+  followUp         String             @default("")
+  escalationStatus EscalationStatus   @default(NOT_ESCALATED)
+  status           BottleneckStatus   @default(OPEN)
+  lifecycleStage   LifecycleStage
 
-  @@index([projectId])
+  statusHistory    BottleneckStatusHistoryEntry[]
+  escalations      Escalation[]
+
+  @@index([pillarId])
   @@map("bottlenecks")
 }
 
-// --- Reports --------------------------------------------------------------
+/// One reporting-cycle snapshot in a bottleneck's status trail - appended
+/// whenever `status` actually changes value, not overwritten.
+model BottleneckStatusHistoryEntry {
+  id           String           @id @default(cuid())
+  bottleneckId String
+  bottleneck   Bottleneck       @relation(fields: [bottleneckId], references: [id], onDelete: Cascade)
+  period       String
+  status       BottleneckStatus
+  createdAt    DateTime         @default(now())
 
-enum ReportStatus {
-  QUEUED
-  GENERATING
-  READY
-  FAILED
+  @@index([bottleneckId])
+  @@map("bottleneck_status_history")
 }
+
+/// No create/update endpoint exists anywhere in the real contract for this
+/// table (confirmed by reading bottlenecks.ts directly - only
+/// escalationRecordSchema's read shape is defined) - seeded data only, same
+/// pattern as RoleDefinition.
+model Escalation {
+  id               String            @id @default(cuid())
+  bottleneckId     String
+  bottleneck       Bottleneck        @relation(fields: [bottleneckId], references: [id])
+  decisionRequired String
+  level            EscalationLevel
+  owner            String
+  dueDate          DateTime
+  status           EscalationStatus  @default(NOT_ESCALATED)
+  resolution       String?
+  evidenceUrl      String?
+
+  @@index([bottleneckId])
+  @@map("escalations")
+}
+
+// --- Reports --------------------------------------------------------------
 
 enum ReportFormat {
   PDF
   XLSX
 }
 
-// Generation is async (RabbitMQ worker) - a row is created as QUEUED
-// immediately so the UI can show it in history, then updated to READY with
-// a fileUrl once the worker finishes. See events/consumers for the worker.
-model Report {
-  id            String       @id @default(cuid())
-  requestedById String
-  requestedBy   User         @relation(fields: [requestedById], references: [id])
-  type          String // e.g. "pillar-summary", "compact-export"
-  format        ReportFormat
-  filters       Json
-  status        ReportStatus @default(QUEUED)
-  fileUrl       String?
-  failureReason String?
-  createdAt     DateTime     @default(now())
-  completedAt   DateTime?
+// Matches reportTypeSchema exactly (m300-frontend/src/api/schemas/
+// reports.ts). `category` is deliberately NOT a column here - it's a fixed
+// derived mapping from reportType (REPORT_TYPE_CATEGORY in the real
+// schema), computed at read time in reports.mappers.ts rather than stored
+// redundantly.
+enum ReportType {
+  COMPACT_PROGRESS
+  COMPACT_REVIEW
+  PILLAR_PERFORMANCE
+  KPI_INDICATOR
+  STATE_DISCO
+  IMPLEMENTATION
+  BOTTLENECK
+  FINANCIAL
+  SUBMISSION_COMPLIANCE
+  DATA_QUALITY
+}
+
+// Real contract: reports never generate an actual PDF/XLSX file server-side
+// - the frontend mock's own handler comment says so explicitly ("The actual
+// PDF/Excel file is produced client-side from the returned preview, not by
+// this endpoint"). POST /reports/generate returns the same {metadata,
+// sections} preview data as POST /reports/preview, synchronously - no
+// queue, no ReportStatus, no worker - and additionally persists this row.
+// Regenerating the exact same config (see reports.service.ts's
+// configSignature()) increments `version` on the existing row rather than
+// creating a new one, matching the real mock's own createSavedReport().
+model SavedReport {
+  id                     String       @id @default(cuid())
+  requestedById          String
+  requestedBy            User         @relation(fields: [requestedById], references: [id])
+  reportType             ReportType
+  title                  String
+  filtersSummary         String
+  validationStatusLabel  String
+  version                Int          @default(1)
+  format                 ReportFormat
+  fileReference          String
+  /// Identifies "the same report configuration" for the version-increment
+  /// rule above - a stable JSON serialization of config, excluding format
+  /// (switching PDF<->XLSX is still "the same report regenerated", per the
+  /// real mock's own configSignature() comment).
+  configSignature        String
+  /// The full ReportConfig that produced this report - stored so it can be
+  /// re-run exactly (e.g. from a "regenerate" action) without the caller
+  /// re-supplying every filter.
+  config                 Json
+  createdAt              DateTime     @default(now())
+  lastGeneratedAt        DateTime     @default(now())
 
   @@index([requestedById])
-  @@map("reports")
+  @@index([configSignature])
+  @@map("saved_reports")
 }
 
 // --- Audit log ------------------------------------------------------------
 
+// Human-readable action label + module + priorValue/newValue strings are
+// derived at read time from `action`/`before`/`after` (see
+// src/modules/administration/overview/audit-event.mapper.ts) rather than
+// stored redundantly - `action` stays a machine key ("user.status_changed")
+// so it's still usable for filtering/analytics independent of display text.
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  REJECTED
+}
+
 model AuditLogEntry {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   actorId    String
-  actor      User     @relation(fields: [actorId], references: [id])
+  actor      User        @relation(fields: [actorId], references: [id])
   action     String // e.g. "submission.approved", "user.role_changed"
   entityType String
   entityId   String
   before     Json?
   after      Json?
-  createdAt  DateTime @default(now())
+  result     AuditResult @default(SUCCESS)
+  createdAt  DateTime    @default(now())
 
   @@index([entityType, entityId])
   @@index([actorId])
@@ -306,15 +979,246 @@ model AuditLogEntry {
 
 // --- Branding ---------------------------------------------------------
 // Single-row table (id is always "default"). Read by everyone via the
-// public gateway/app shell; writable only by SYSTEM_ADMINISTRATOR.
-
+// public gateway/app shell; writable only by SYSTEM_ADMINISTRATOR. Shape
+// matches the real frontend contract exactly (src/api/schemas/branding.ts
+// in m300-frontend) - fonts/currency are stored as JSON since they're
+// nested objects there (per-heading-level font family, ISO currency triple).
 model BrandingSettings {
-  id        String   @id @default("default")
-  logoUrl   String?
-  primaryColor   String @default("#0B5FFF")
-  secondaryColor String @default("#111827")
-  fontFamily     String @default("Inter")
-  updatedAt DateTime @updatedAt
+  id             String   @id @default("default")
+  countryName    String   @default("Nigeria")
+  primaryColor   String   @default("#004972")
+  secondaryColor String   @default("#ffca05")
+  textColor      String   @default("#101828")
+  sidebarColor   String   @default("#004972")
+  logoUrl        String   @default("/Logos/geapp.png")
+  /// Shape: { h1, h2, h3, h4, h5, h6, body } - each a Google Fonts family name.
+  fonts          Json
+  /// Shape: { code, symbol, locale } - ISO 4217 code, display symbol, locale for digit grouping.
+  currency       Json
+  updatedAt      DateTime @updatedAt
 
   @@map("branding_settings")
+}
+
+// --- Notifications (email + webhooks) -----------------------------------
+// Both channels are driven off the same domain events published to
+// RabbitMQ (submission decisions, invites, report-ready, etc.) - see
+// src/notifications. Email has no DB row of its own (Resend is the system
+// of record for delivery status); webhooks need one, since a subscriber's
+// endpoint can be down and we need something to retry/debug against.
+
+model WebhookSubscription {
+  id          String    @id @default(cuid())
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  url         String
+  secret      String // HMAC key for the X-M300-Signature header - shown once at creation
+  events      String[] // routing-key patterns this subscription wants, e.g. "submission.*"
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  deliveries  WebhookDelivery[]
+
+  @@index([ownerId])
+  @@map("webhook_subscriptions")
+}
+
+enum WebhookDeliveryStatus {
+  SUCCESS
+  FAILED
+}
+
+// One row per delivery attempt, not per event - lets a caller see exactly
+// what was sent and why a delivery failed, without needing external logs.
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  subscriptionId String
+  subscription   WebhookSubscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  event          String
+  payload        Json
+  status         WebhookDeliveryStatus
+  responseStatus Int?
+  error          String?
+  createdAt      DateTime              @default(now())
+
+  @@index([subscriptionId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// --- State & DisCo -----------------------------------------------------
+//
+// Real contract: m300-frontend/src/api/schemas/state-disco/. Unlike
+// Executive Overview and Pillar Dashboards, this is NOT a pure read-
+// composition layer - the frontend mock's own data here is static, hand-
+// authored fixture data, not derived from any other register (confirmed
+// directly: mocks/handlers/state-disco.ts just filters flat arrays, no
+// buildXxx() derivation function like Programs/Bottlenecks/Executive
+// Overview have). DisCo financial/operational performance genuinely comes
+// from external NERC regulatory records nothing else in this schema
+// tracks - so these are real entities with their own admin-entry
+// endpoints, not derived from KpiDefinition/Programme/Project at all. The
+// one place this DOES connect to existing data is State coverage
+// (miniGridConnections/activeProjects/openBottlenecks per state), which
+// is a genuine live aggregation over Project rows explicitly tagged with
+// a state (Project.stateId) - the spec is explicit that a state value must
+// never be inferred from free-text location, so an untagged project
+// honestly contributes to no state's numbers.
+//
+// A DisCo is not a new kind of entity here - it's an existing Institution
+// row (Institution.type already documents "Disco" as an example type),
+// so these all reference Institution directly rather than a redundant
+// parallel "DistributionCompany" table.
+
+model State {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Nigeria's six geopolitical zones (e.g. "North West", "South South").
+  zone      String
+  /// Null while this state's coverage aggregate is still provisional - set
+  /// by POST state-disco/states/:id/validate. Stored as a plain name
+  /// (not a User FK) since this only needs to be displayed, not queried.
+  validatedByName String?
+  validatedAt     DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects  Project[]
+
+  @@map("states")
+}
+
+enum ServiceBand {
+  A
+  B
+  C
+  D
+  E
+}
+
+/// One reporting-period snapshot of a DisCo institution's metering/energy/
+/// revenue/remittance position - admin-entered for now (no submission
+/// workflow yet), matching how a KPI's baseline/target are set today.
+/// `period`-stamped like KpiValue so a real trend can be computed once 2+
+/// periods exist for the same institution.
+model DiscoPerformanceRecord {
+  id                      String           @id @default(cuid())
+  institutionId           String
+  institution             Institution      @relation(fields: [institutionId], references: [id])
+  period                  String
+  activeCustomers         Int
+  meteredCustomers        Int
+  energyReceivedMwh       Decimal
+  energyBilledMwh         Decimal
+  revenueBilledNgn        Decimal
+  revenueCollectedNgn     Decimal
+  remittanceObligationNgn Decimal
+  remittanceActualNgn     Decimal
+  /// The applicable Multi-Year Tariff Order / Performance Improvement Plan
+  /// allowed loss-rate benchmark for this DisCo and period. Null until
+  /// entered separately - it's a regulator-approved target from the DisCo's
+  /// own MYTO order, not something derivable from energy received/billed
+  /// (those give the ACTUAL loss rate, atccLossRatePercent below).
+  allowedLossRatePercent  Decimal?
+  atccLossRatePercent     Decimal
+  /// Where this record's figures came from - e.g. the compiled NERC
+  /// workbook this was bulk-ingested from. Null for a row entered directly
+  /// through the admin screen with no source file.
+  evidenceUrl             String?
+  validationStatus        ValidationStatus @default(PROVISIONAL)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@unique([institutionId, period])
+  @@index([institutionId])
+  @@map("disco_performance_records")
+}
+
+/// Current (not period-historical) supply hours and approved tariff per
+/// service band A-E for a DisCo institution - one row per (institution, band).
+model DiscoServiceBand {
+  id                String      @id @default(cuid())
+  institutionId     String
+  institution       Institution @relation(fields: [institutionId], references: [id])
+  band              ServiceBand
+  /// e.g. "MYTO 2024 Minor Review" - the approved tariff order this rate comes from.
+  effectiveOrder    String
+  supplyHoursPerDay Decimal
+  tariffNgnPerKwh   Decimal
+  /// Share of this DisCo's customer base or demand in this band.
+  intensityPercent  Decimal
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([institutionId, band])
+  @@map("disco_service_bands")
+}
+
+/// A Performance Improvement Plan milestone for a DisCo institution, linked
+/// to a service band and optionally an open bottleneck (free text - the
+/// real contract's own `bottleneck` field is a string, not a Bottleneck FK).
+model DiscoDeliveryMilestone {
+  id                  String          @id @default(cuid())
+  institutionId       String
+  institution         Institution     @relation(fields: [institutionId], references: [id])
+  milestone           String
+  serviceBand         ServiceBand
+  dueDate             DateTime
+  executionStatus     ExecutionStatus @default(ON_TRACK)
+  /// Null until actually achieved.
+  achievedDate        DateTime?
+  evidenceUrl         String?
+  reportingCompliance String          @default("")
+  bottleneck          String          @default("")
+  validationStatus    ValidationStatus @default(PROVISIONAL)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([institutionId])
+  @@map("disco_delivery_milestones")
+}
+
+/// What kind of thing a Learning & Decision Log entry is about, matching
+/// learningLogAreaSchema exactly (learning-log.ts) - lets the log be
+/// scanned by subject without needing free-text search.
+enum LearningLogArea {
+  KPI_METHODOLOGY
+  DATA_GOVERNANCE
+  RESULTS_FRAMEWORK
+  SUBMISSION_WORKFLOW
+  OTHER
+}
+
+enum LearningLogStatus {
+  PROPOSED
+  DECIDED
+  SUPERSEDED
+}
+
+/// The Learning & Decision Log - added per the SE4ALL MRL alignment review
+/// (docs/se4all-mrl-alignment-renewable-private-capital.md). Bottlenecks &
+/// Exceptions tracks what's currently blocked; this tracks the "why we
+/// changed X" decision itself, which had no dedicated record anywhere
+/// before. A pure record-keeping module - no linkage back into any other
+/// module's data beyond a free-text `relatedRecord`, matching the real
+/// contract exactly (learning-log.ts has no FK-shaped field here either).
+model LearningLogEntry {
+  id            String            @id @default(cuid())
+  title         String
+  area          LearningLogArea
+  /// What was decided or proposed.
+  decision      String
+  /// Why - what prompted the review and what it changed or will change.
+  rationale     String
+  /// The KPI id, module, or record this decision affects. Null for a
+  /// decision with no single affected record.
+  relatedRecord String?
+  /// e.g. "Q3 2026 review" - free text, review cycles aren't a closed
+  /// vocabulary anywhere else in the app either.
+  reviewCycle   String
+  status        LearningLogStatus @default(PROPOSED)
+  decidedById   String
+  decidedBy     User              @relation(fields: [decidedById], references: [id])
+  decidedAt     DateTime          @default(now())
+
+  @@map("learning_log_entries")
 }

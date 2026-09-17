@@ -41,3 +41,9 @@ prisma/*.db
 # misc
 tmp/
 *.tsbuildinfo
+
+# machine-specific local dev overrides
+docker/docker-compose.override.yml
+
+# local file storage (STORAGE_DRIVER=local) - uploaded files, never source
+storage/

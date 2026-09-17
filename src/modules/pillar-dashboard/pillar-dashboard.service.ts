@@ -1,0 +1,144 @@
+import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "@/prisma/prisma.service";
+import { toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import { toProgrammeRecord, toProjectRecord } from "@/modules/programs/programs.mappers";
+import {
+  loadBottleneckIdsByLinkedRecord,
+  toBottleneckRecord,
+} from "@/modules/bottlenecks/bottlenecks.mappers";
+import { toKebabCase } from "@/common/utils/enum-casing";
+import {
+  PILLAR_HEADLINE_KPI_CODES,
+  PILLAR_LABELS,
+  PILLAR_SEVERITY_RANK,
+  toPillarCoreIndicator,
+  toPillarHeadlineCard,
+} from "@/modules/pillar-dashboard/pillar-dashboard.mappers";
+
+const KPI_PROFILE_INCLUDE = { pillar: true, targetPoints: true } as const;
+const VALUE_INCLUDE = { sourceSubmissionItem: { include: { submission: true } } } as const;
+const PROGRAMME_INCLUDE = { pillar: true } as const;
+const PROJECT_INCLUDE = {
+  pillar: true,
+  programme: true,
+  statusHistory: true,
+  documents: true,
+  updates: true,
+} as const;
+const BOTTLENECK_INCLUDE = { pillar: true, statusHistory: true } as const;
+
+const EXECUTION_STATUSES = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED", "COMPLETED"] as const;
+
+@Injectable()
+export class PillarDashboardService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async getDashboard(pillarSlug: string) {
+    const pillar = await this.prisma.pillar.findUnique({ where: { slug: pillarSlug } });
+    if (!pillar) throw new NotFoundException("Unknown Compact pillar.");
+
+    const headlineCodes = PILLAR_HEADLINE_KPI_CODES[pillarSlug];
+    if (!headlineCodes) {
+      throw new InternalServerErrorException(
+        `No headline-card KPI mapping configured for pillar "${pillarSlug}".`,
+      );
+    }
+
+    const kpis = await this.prisma.kpiDefinition.findMany({
+      where: { pillarId: pillar.id, isActive: true },
+      include: KPI_PROFILE_INCLUDE,
+    });
+    const kpiIds = kpis.map((k) => k.id);
+    const allValues = kpiIds.length
+      ? await this.prisma.kpiValue.findMany({
+          where: { kpiDefinitionId: { in: kpiIds } },
+          include: VALUE_INCLUDE,
+        })
+      : [];
+
+    const valuesByKpi = new Map<string, typeof allValues>();
+    for (const value of allValues) {
+      const list = valuesByKpi.get(value.kpiDefinitionId) ?? [];
+      list.push(value);
+      valuesByKpi.set(value.kpiDefinitionId, list);
+    }
+
+    const profilesByCode = new Map<string, ReturnType<typeof toKpiProfile>>();
+    for (const kpi of kpis) {
+      profilesByCode.set(kpi.code, toKpiProfile(kpi, valuesByKpi.get(kpi.id) ?? []));
+    }
+
+    const missingHeadline = headlineCodes.filter((code) => !profilesByCode.has(code));
+    if (missingHeadline.length > 0) {
+      throw new InternalServerErrorException(
+        `Pillar dashboard "${pillarSlug}" references unseeded KPI code(s): ${missingHeadline.join(", ")}.`,
+      );
+    }
+    const headlineCards = headlineCodes.map((code) => toPillarHeadlineCard(profilesByCode.get(code)!));
+
+    const latestByKpi = new Map<string, (typeof allValues)[number]>();
+    for (const value of [...allValues].sort((a, b) => b.approvedAt.getTime() - a.approvedAt.getTime())) {
+      if (!latestByKpi.has(value.kpiDefinitionId)) latestByKpi.set(value.kpiDefinitionId, value);
+    }
+    const catalogueRows = kpis.map((kpi) => toCatalogueRow(kpi, latestByKpi.get(kpi.id) ?? null));
+
+    const coreIndicators = kpis
+      .filter((kpi) => !headlineCodes.includes(kpi.code))
+      .map((kpi) => toPillarCoreIndicator(profilesByCode.get(kpi.code)!, kpi.sourceDataset || "Other"));
+
+    const [programmes, projects, bottlenecksRaw] = await Promise.all([
+      this.prisma.programme.findMany({ where: { pillarId: pillar.id }, include: PROGRAMME_INCLUDE }),
+      this.prisma.project.findMany({ where: { pillarId: pillar.id }, include: PROJECT_INCLUDE }),
+      this.prisma.bottleneck.findMany({ where: { pillarId: pillar.id }, include: BOTTLENECK_INCLUDE }),
+    ]);
+
+    const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [
+      ...programmes.map((p) => p.id),
+      ...projects.map((p) => p.id),
+    ]);
+    const programmeRecords = programmes.map((p) => toProgrammeRecord(p, bottleneckIds.get(p.id) ?? []));
+    const projectRecords = projects.map((p) => toProjectRecord(p, bottleneckIds.get(p.id) ?? []));
+
+    const statuses = [...programmes.map((p) => p.status), ...projects.map((p) => p.currentStatus)];
+    const counts = EXECUTION_STATUSES.map((status) => ({
+      status: toKebabCase(status),
+      count: statuses.filter((s) => s === status).length,
+    }));
+
+    const now = new Date();
+    // Ranked top-5 for this pillar - no status filter beyond the pillar
+    // match itself (matches the frontend mock's own buildPillarDashboard()
+    // exactly: resolved bottlenecks are NOT excluded here, unlike
+    // Executive Overview's exceptions[] or Bottlenecks' own "open" set).
+    const bottlenecks = bottlenecksRaw
+      .map((b) => ({
+        ...b,
+        ageDays: Math.floor((now.getTime() - b.dateRaised.getTime()) / (24 * 60 * 60 * 1000)),
+      }))
+      .sort((a, b) => {
+        const delta = (PILLAR_SEVERITY_RANK[a.severity] ?? 0) - (PILLAR_SEVERITY_RANK[b.severity] ?? 0);
+        return delta !== 0 ? delta : b.ageDays - a.ageDays;
+      })
+      .slice(0, 5)
+      .map((b) => toBottleneckRecord(b, now));
+
+    return {
+      pillar: pillarSlug,
+      label: PILLAR_LABELS[pillarSlug],
+      lastUpdated: now.toISOString(),
+      headlineCards,
+      coreIndicators,
+      deliveryStatus: { counts, total: statuses.length },
+      bottlenecks,
+      programmes: programmeRecords,
+      projects: projectRecords,
+      // State/DisCo is its own not-yet-built module (a separate entity
+      // model entirely - DisCo-level metering/revenue comparison rows, not
+      // KPI Explorer data) - honestly empty until then, same "close the
+      // loop later" precedent as Programs Phase A's bottlenecks[] before
+      // Phase B wired the real derivation.
+      discoPerformance: [] as unknown[],
+      kpis: catalogueRows,
+    };
+  }
+}

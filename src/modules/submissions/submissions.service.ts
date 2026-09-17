@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/commo
 import { ReviewDecisionType, SubmissionStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
+import { SecuritySettingsService } from "@/modules/administration/security/security-settings.service";
 import { assertValidTransition } from "@/modules/submissions/submissions.state-machine";
 import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
@@ -25,6 +26,7 @@ export class SubmissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rabbitmq: RabbitmqService,
+    private readonly securitySettings: SecuritySettingsService,
   ) {}
 
   async create(user: AuthenticatedUser, dto: CreateSubmissionDto) {
@@ -90,6 +92,9 @@ export class SubmissionsService {
       include: { items: true },
     });
     if (!submission) throw new NotFoundException("Submission not found");
+    if (submission.submittedById === user.id && !(await this.securitySettings.get()).allowSelfReview) {
+      throw new ForbiddenException("Self-review is disabled by the system administrator");
+    }
 
     const targetStatus = DECISION_TO_STATUS[dto.decision];
     assertValidTransition(submission.status, targetStatus);

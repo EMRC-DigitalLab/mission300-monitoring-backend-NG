@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: m300
+      POSTGRES_PASSWORD: m300
+      POSTGRES_DB: m300
+    ports:
+      - "5432:5432"
+    volumes:
+      - m300-audit-pgdata:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: m300
+      RABBITMQ_DEFAULT_PASS: m300
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+volumes:
+  m300-audit-pgdata:
