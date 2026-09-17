@@ -1,7 +1,16 @@
 import { Transform } from "class-transformer";
-import { ArrayNotEmpty, ArrayUnique, IsArray, IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsEmail, IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 import { RoleName, ScopeLevel } from "@prisma/client";
 import { parseKebabEnum } from "@/common/utils/enum-casing";
+
+// Defense-in-depth: nothing downstream currently renders these fields
+// unescaped (React's default JSX escaping, and email templates' explicit
+// escapeHtml() both handle it correctly today - see WEB-010 in the audit
+// report), but these are plain names/labels with no legitimate reason to
+// contain markup, so reject it outright rather than relying solely on every
+// future render site remembering to escape.
+const NO_HTML_MARKUP = /^[^<>]*$/;
+const NO_HTML_MARKUP_MESSAGE = "must not contain '<' or '>'";
 
 // Matches inviteUserRequestSchema exactly (m300-frontend/src/api/schemas/
 // administration.ts) - note "name" (not fullName), "institution" as a
@@ -10,6 +19,7 @@ import { parseKebabEnum } from "@/common/utils/enum-casing";
 export class InviteUserDto {
   @IsString()
   @MinLength(2, { message: "Enter the user name" })
+  @Matches(NO_HTML_MARKUP, { message: `Name ${NO_HTML_MARKUP_MESSAGE}` })
   name!: string;
 
   @IsEmail({}, { message: "Enter a valid email address" })
@@ -17,10 +27,12 @@ export class InviteUserDto {
 
   @IsString()
   @MinLength(1, { message: "Select an institution" })
+  @Matches(NO_HTML_MARKUP, { message: `Institution ${NO_HTML_MARKUP_MESSAGE}` })
   institution!: string;
 
   @IsString()
   @MinLength(2, { message: "Enter the designation" })
+  @Matches(NO_HTML_MARKUP, { message: `Designation ${NO_HTML_MARKUP_MESSAGE}` })
   designation!: string;
 
   // Role/accessScope arrive as lower-kebab-case (systemRoleSchema/

@@ -4,7 +4,7 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { StorageService } from "@/storage/storage.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
 import { SecuritySettingsService } from "@/modules/administration/security/security-settings.service";
-import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
+import { scopeInstitutionFilter, assertInstitutionMembership } from "@/common/guards/institution-scope.guard";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { workflowStatus } from "@/modules/data-submissions/workflow-status";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
@@ -158,12 +158,17 @@ export class DataSubmissionsService {
     const obligations = await this.prisma.obligation.findMany({
       where: {
         acceptedSubmissionId: null,
-        ...scopeInstitutionFilter(user),
+        // scopeInstitutionFilter(user) MUST be spread last: for an
+        // institution-scoped user it always sets institutionId, and object
+        // spread lets a later key win - putting it after the client-supplied
+        // query.institution filter means the caller's own institution scope
+        // can never be overridden by that query param. See WEB-009.
         ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
         ...(query.dataset && query.dataset !== "all" ? { datasetId: query.dataset } : {}),
         ...(query.reportingPeriod && query.reportingPeriod !== "all"
           ? { reportingPeriod: query.reportingPeriod }
           : {}),
+        ...scopeInstitutionFilter(user),
       },
       include: OBLIGATION_INCLUDE,
       orderBy: { dueDate: "asc" },
@@ -202,8 +207,9 @@ export class DataSubmissionsService {
 
     const submissions = await this.prisma.submission.findMany({
       where: {
-        ...scopeInstitutionFilter(user),
+        // scopeInstitutionFilter(user) last - see comment in getObligations().
         ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
+        ...scopeInstitutionFilter(user),
       },
       include: SUBMISSION_INCLUDE,
       orderBy: { createdAt: "desc" },
@@ -223,8 +229,9 @@ export class DataSubmissionsService {
       where: {
         acceptedSubmissionId: null,
         dueDate: { lt: new Date() },
-        ...scopeInstitutionFilter(user),
+        // scopeInstitutionFilter(user) last - see comment in getObligations().
         ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
+        ...scopeInstitutionFilter(user),
       },
       include: OBLIGATION_INCLUDE,
       orderBy: { dueDate: "asc" },
@@ -265,6 +272,7 @@ export class DataSubmissionsService {
 
   async saveManualEntry(user: AuthenticatedUser, obligationId: string, dto: ManualEntryDto) {
     const obligation = await this.findObligationWithFields(obligationId);
+    assertInstitutionMembership(user, obligation.institutionId);
 
     const issues = validateFieldValues(obligation.dataset.fields, dto.values);
     if (issues.length > 0) {
@@ -317,6 +325,7 @@ export class DataSubmissionsService {
     dto: { sourceReference?: string; notes?: string },
   ) {
     const obligation = await this.findObligationWithFields(obligationId);
+    assertInstitutionMembership(user, obligation.institutionId);
 
     if (!file) throw new BadRequestException("Select a completed template to upload.");
     const sourceReference = dto.sourceReference?.trim();
@@ -432,9 +441,10 @@ export class DataSubmissionsService {
     const submissions = await this.prisma.submission.findMany({
       where: {
         status: "PENDING",
-        ...scopeInstitutionFilter(user),
+        // scopeInstitutionFilter(user) last - see comment in getObligations().
         ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
         ...(query.reviewer && query.reviewer !== "all" ? { reviewerId: query.reviewer } : {}),
+        ...scopeInstitutionFilter(user),
       },
       include: SUBMISSION_INCLUDE,
       orderBy: { createdAt: "asc" }, // oldest-waiting first

@@ -3,6 +3,10 @@ import type { AuthenticatedUser } from "@/common/decorators/current-user.decorat
 
 const UNSCOPED_ROLES = ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER"];
 
+function isUnscopedRole(user: AuthenticatedUser): boolean {
+  return (user.roles?.length ? user.roles : [user.role]).some((role) => UNSCOPED_ROLES.includes(role));
+}
+
 /**
  * Blocks an institutional user (data provider, reviewer, validator) from
  * reading or writing another institution's data via a path param, e.g.
@@ -24,7 +28,7 @@ export class InstitutionScopeGuard implements CanActivate {
     }>();
     const { user, params } = request;
 
-    if ((user.roles?.length ? user.roles : [user.role]).some((role) => UNSCOPED_ROLES.includes(role))) return true;
+    if (isUnscopedRole(user)) return true;
 
     const requestedInstitutionId = params.institutionId;
     if (!requestedInstitutionId) return true; // route doesn't scope by institution
@@ -38,6 +42,21 @@ export class InstitutionScopeGuard implements CanActivate {
 
 /** Reuse the same allow-list from a service method's own scoping check. */
 export function scopeInstitutionFilter(user: AuthenticatedUser): { institutionId?: string } {
-  if ((user.roles?.length ? user.roles : [user.role]).some((role) => UNSCOPED_ROLES.includes(role))) return {};
+  if (isUnscopedRole(user)) return {};
   return { institutionId: user.institutionId ?? "__none__" };
+}
+
+/**
+ * Write-side counterpart to scopeInstitutionFilter(): call this before
+ * creating/mutating a record on behalf of a specific institutionId (e.g. a
+ * data submission against an obligation). Throws unless the caller is an
+ * unscoped role or genuinely belongs to that institution - without this, an
+ * institution-scoped user could submit data attributed to an institution
+ * they have no membership in. See WEB-012.
+ */
+export function assertInstitutionMembership(user: AuthenticatedUser, institutionId: string): void {
+  if (isUnscopedRole(user)) return;
+  if (user.institutionId !== institutionId) {
+    throw new ForbiddenException("You cannot submit data on behalf of another institution");
+  }
 }

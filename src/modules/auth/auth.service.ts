@@ -47,6 +47,16 @@ export class AuthService {
     if (!user || user.status !== AccountStatus.ACTIVE) {
       throw new NotFoundException("We could not find an active account for that email.");
     }
+    // NOTE (WEB-006 in the audit report): this leaks displayName/institution
+    // for any known-active email, and the 404-vs-200 split is itself an
+    // enumeration oracle. Both are required by the real external API
+    // contract m300-frontend mirrors - identifiedAccountSchema in
+    // src/api/schemas/auth.ts makes both fields non-optional, and removing
+    // either breaks sign-in for real users (confirmed by testing: the
+    // frontend fails Zod validation and never advances past this step
+    // without them). A real fix here needs a coordinated contract change
+    // with the frontend, not a backend-only patch - left as accepted risk
+    // for this pass, mitigated by the rate limiting added for WEB-007.
     return { email: user.email, displayName: user.fullName, institution: user.institution?.name ?? "" };
   }
 

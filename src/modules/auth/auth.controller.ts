@@ -1,11 +1,18 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "@/modules/auth/auth.service";
 import { IdentifyDto } from "@/modules/auth/dto/identify.dto";
 import { LoginDto } from "@/modules/auth/dto/login.dto";
 import { ForgotPasswordDto } from "@/modules/auth/dto/forgot-password.dto";
 import { SetPasswordDto } from "@/modules/auth/dto/set-password.dto";
 import { Public } from "@/common/decorators/public.decorator";
+
+// Much stricter than the app-wide default (100/min) - these are the
+// account-enumeration and credential-brute-force surfaces (see WEB-006,
+// WEB-007 in the audit report). Keyed per-IP by ThrottlerGuard's default
+// tracker, so this doesn't lock out other users of the same account.
+const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 
 @ApiTags("auth")
 @Controller("auth")
@@ -16,6 +23,7 @@ export class AuthController {
   // returns just enough to show a "Welcome back, {name}" screen before
   // asking for the password.
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post("identify")
   @HttpCode(HttpStatus.OK)
   identify(@Body() dto: IdentifyDto) {
@@ -23,6 +31,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post("login")
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
@@ -32,6 +41,7 @@ export class AuthController {
   // Always 200 regardless of whether the account exists - see
   // AuthService.forgotPassword() for why.
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post("forgot-password")
   @HttpCode(HttpStatus.OK)
   async forgotPassword(@Body() dto: ForgotPasswordDto) {

@@ -38,6 +38,7 @@
     "@nestjs/platform-express": "^11.2.3",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/terminus": "^11.1.1",
+    "@nestjs/throttler": "^6.7.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "amqp-connection-manager": "^5.0.0",
@@ -94,7 +95,10 @@
       "@scarf/scarf",
       "argon2",
       "prisma"
-    ]
+    ],
+    "overrides": {
+      "multer": ">=2.3.0"
+    }
   },
   "jest": {
     "moduleFileExtensions": [

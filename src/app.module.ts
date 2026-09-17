@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 import { validateEnv } from "@/config/env.validation";
 import { PrismaModule } from "@/prisma/prisma.module";
@@ -38,6 +39,11 @@ import { LearningLogModule } from "@/modules/learning-log/learning-log.module";
       envFilePath: [`.env.${process.env.NODE_ENV ?? "development"}`],
       validate: validateEnv,
     }),
+    // Generous global default (a safety net against runaway/scripted
+    // traffic across the whole API) - the sensitive auth endpoints
+    // (identify/login) carry their own much stricter @Throttle() override,
+    // see auth.controller.ts. See WEB-007 in the audit report.
+    ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     LoggerModule.forRoot({
       pinoHttp: {
         // pino-pretty is a devDependency, pruned from the Docker image - the
@@ -76,6 +82,9 @@ import { LearningLogModule } from "@/modules/learning-log/learning-log.module";
     LearningLogModule,
   ],
   providers: [
+    // Rate limiting runs first, before auth is even checked - an
+    // unauthenticated brute-force attempt should be throttled too.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Every route requires a valid JWT unless marked @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Then, if a route carries @Roles(...), the caller's role must match.
