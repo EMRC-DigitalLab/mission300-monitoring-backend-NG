@@ -58,7 +58,7 @@ export class AuditLogInterceptor implements NestInterceptor {
               action,
               entityType: action.split(".")[0],
               entityId: entity?.id ?? fallbackEntityId,
-              after: (result ?? undefined) as never,
+              after: (redactSensitiveFields(result) ?? undefined) as never,
               result: deriveResult(action, result),
             },
           }),
@@ -79,6 +79,26 @@ export class AuditLogInterceptor implements NestInterceptor {
       ),
     );
   }
+}
+
+const SENSITIVE_KEYS = ["passwordHash", "tokenHash"];
+
+function stripSensitiveKeys(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([key]) => !SENSITIVE_KEYS.includes(key),
+  );
+  return Object.fromEntries(entries);
+}
+
+function redactSensitiveFields(result: unknown): unknown {
+  const top = stripSensitiveKeys(result);
+  if (!top || typeof top !== "object" || Array.isArray(top)) return top;
+  const entries = Object.entries(top as Record<string, unknown>).map(([key, value]) => [
+    key,
+    stripSensitiveKeys(value),
+  ]);
+  return Object.fromEntries(entries);
 }
 
 // Only submission.decision_recorded can currently produce "rejected" - its

@@ -460,9 +460,9 @@ export class DataSubmissionsService {
     return paginate(views, query.page ?? 1, pageSize);
   }
 
-  async getSubmissionDetail(id: string) {
+  async getSubmissionDetail(user: AuthenticatedUser, id: string) {
     const submission = await this.prisma.submission.findUnique({
-      where: { id },
+      where: { id, ...scopeInstitutionFilter(user) },
       include: SUBMISSION_DETAIL_INCLUDE,
     });
     if (!submission) throw new NotFoundException("Submission not found.");
@@ -496,10 +496,16 @@ export class DataSubmissionsService {
     const publishesValue = VALUE_PUBLISHING_DECISIONS.has(dto.decision);
 
     await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.submission.updateMany({
+        where: { id, status: "PENDING" },
+        data: { status: targetStatus },
+      });
+      if (count !== 1) {
+        throw new BadRequestException("This submission was already decided.");
+      }
       await tx.reviewDecision.create({
         data: { submissionId: id, reviewedById: user.id, decision: reviewType, comment: dto.comments },
       });
-      await tx.submission.update({ where: { id }, data: { status: targetStatus } });
 
       if (publishesValue) {
         const approvedAt = new Date();
@@ -574,6 +580,13 @@ export class DataSubmissionsService {
     if (reviewers.length === 0) return null;
     reviewers.sort((a, b) => a._count.reviewingSubmissions - b._count.reviewingSubmissions);
     return reviewers[0].id;
+  }
+
+  private assertInstitutionAccess(user: AuthenticatedUser, institutionId: string) {
+    const filter = scopeInstitutionFilter(user);
+    if (filter.institutionId && filter.institutionId !== institutionId) {
+      throw new ForbiddenException("You cannot submit data for another institution's obligation.");
+    }
   }
 
   private async findObligationWithFields(obligationId: string) {

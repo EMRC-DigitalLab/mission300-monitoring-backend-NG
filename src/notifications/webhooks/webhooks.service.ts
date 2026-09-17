@@ -1,9 +1,10 @@
 import { randomBytes, createHmac } from "node:crypto";
-import { Injectable, Logger, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { WebhookDeliveryStatus, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { CreateWebhookSubscriptionDto } from "@/notifications/webhooks/dto/create-webhook-subscription.dto";
+import { assertPublicWebhookUrl, WebhookUrlBlockedError } from "@/notifications/webhooks/ssrf-guard";
 
 @Injectable()
 export class WebhooksService {
@@ -12,6 +13,13 @@ export class WebhooksService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(user: AuthenticatedUser, dto: CreateWebhookSubscriptionDto) {
+    try {
+      await assertPublicWebhookUrl(dto.url);
+    } catch (error) {
+      if (error instanceof WebhookUrlBlockedError) throw new BadRequestException(error.message);
+      throw error;
+    }
+
     const secret = randomBytes(32).toString("hex");
     const subscription = await this.prisma.webhookSubscription.create({
       data: { ownerId: user.id, url: dto.url, events: dto.events, secret },
@@ -63,6 +71,8 @@ export class WebhooksService {
     const signature = createHmac("sha256", subscription.secret).update(body).digest("hex");
 
     try {
+      await assertPublicWebhookUrl(subscription.url);
+
       const response = await fetch(subscription.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-M300-Signature": `sha256=${signature}` },

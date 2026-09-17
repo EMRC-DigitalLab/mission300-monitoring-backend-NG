@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "@/modules/auth/auth.service";
 import { IdentifyDto } from "@/modules/auth/dto/identify.dto";
 import { LoginDto } from "@/modules/auth/dto/login.dto";
