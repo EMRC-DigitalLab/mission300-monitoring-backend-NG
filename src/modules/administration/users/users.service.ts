@@ -80,8 +80,9 @@ export class UsersService {
     return { user: toUserAccountResponse(user), message };
   }
 
-  setStatus(id: string, status: AccountStatus) {
-    return this.prisma.user.update({ where: { id }, data: { status } });
+  async setStatus(id: string, status: AccountStatus) {
+    const user = await this.prisma.user.update({ where: { id }, data: { status }, include: { institution: true } });
+    return toUserAccountResponse(user);
   }
 
   async updateRoles(id: string, roles: RoleName[]) {
@@ -100,14 +101,29 @@ export class UsersService {
 
   /**
    * "institution" arrives as free text (matches the real contract - see
-   * inviteUserRequestSchema), not an id, since the frontend's invite form
-   * has no institution CRUD of its own either. Find-or-create by exact
-   * name so repeat invites into the same institution don't create
-   * duplicate rows.
+   * inviteUserRequestSchema), not an id. The invite form now only ever
+   * submits a name copied verbatim from GET /institutions (see
+   * institutionOptionSchema on the frontend), so this should always find a
+   * match - the case-insensitive lookup is a defence against drift (an
+   * institution renamed since the form was last loaded, or a client that
+   * bypasses the picker) rather than the primary matching path.
+   *
+   * An exact, case-SENSITIVE match was found to silently create a
+   * duplicate, disconnected institution whenever the submitted casing
+   * didn't match exactly (e.g. "NERC" against the stored "Nigerian
+   * Electricity Regulatory Commission (NERC)") - the new account ended up
+   * attached to an empty institution with none of the real one's KPIs,
+   * obligations or submission history, while looking like a normal invite.
+   * Case-insensitive matching closes that specific gap; it does not fix an
+   * institution named differently in substance (e.g. an abbreviation with
+   * no shared text at all), which still needs a real create - see the
+   * name/institutionId contract note above for why this remains free text.
    */
   private async resolveInstitution(name: string) {
     const trimmed = name.trim();
-    const existing = await this.prisma.institution.findFirst({ where: { name: trimmed } });
+    const existing = await this.prisma.institution.findFirst({
+      where: { name: { equals: trimmed, mode: "insensitive" } },
+    });
     if (existing) return existing;
     return this.prisma.institution.create({ data: { name: trimmed, type: "Institution" } });
   }

@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "@/modules/auth/auth.service";
 import { IdentifyDto } from "@/modules/auth/dto/identify.dto";
 import { LoginDto } from "@/modules/auth/dto/login.dto";
@@ -16,6 +17,7 @@ export class AuthController {
   // returns just enough to show a "Welcome back, {name}" screen before
   // asking for the password.
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("identify")
   @HttpCode(HttpStatus.OK)
   identify(@Body() dto: IdentifyDto) {
@@ -23,6 +25,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("login")
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
@@ -32,6 +35,7 @@ export class AuthController {
   // Always 200 regardless of whether the account exists - see
   // AuthService.forgotPassword() for why.
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("forgot-password")
   @HttpCode(HttpStatus.OK)
   async forgotPassword(@Body() dto: ForgotPasswordDto) {

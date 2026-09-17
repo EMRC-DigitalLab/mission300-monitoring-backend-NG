@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -23,6 +24,13 @@ import { AuditAction } from "@/common/decorators/audit-action.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
 
 const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024; // matches uploadDefinitionSchema's maxFileSizeMb
+const ALLOWED_UPLOAD_EXTENSIONS = [".xlsx", ".csv"];
+const ALLOWED_UPLOAD_MIME_TYPES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/csv",
+];
 
 // All 3 phases of the Data Submissions rebuild: the read-only foundation,
 // manual-entry/upload creation + template generation, and the validation
@@ -84,7 +92,19 @@ export class DataSubmissionsController {
   @Post("obligations/:id/upload")
   @ApiConsumes("multipart/form-data")
   @AuditAction("submission.uploaded")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
+      fileFilter: (_req, file, callback) => {
+        const extension = file.originalname.slice(file.originalname.lastIndexOf(".")).toLowerCase();
+        if (!ALLOWED_UPLOAD_EXTENSIONS.includes(extension) || !ALLOWED_UPLOAD_MIME_TYPES.includes(file.mimetype)) {
+          callback(new BadRequestException("Only .xlsx or .csv files are accepted."), false);
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
   uploadSubmission(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
@@ -110,8 +130,8 @@ export class DataSubmissionsController {
   }
 
   @Get("validation/:id")
-  getSubmissionDetail(@Param("id") id: string) {
-    return this.dataSubmissions.getSubmissionDetail(id);
+  getSubmissionDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.dataSubmissions.getSubmissionDetail(user, id);
   }
 
   // Same role gate as the old submissions module's decision endpoint
