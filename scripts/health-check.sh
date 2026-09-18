@@ -11,7 +11,14 @@ SLEEP_SECONDS=5
 echo "Checking $URL ..."
 
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-  status=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+  # curl's own -w already prints "000" for http_code when it can't connect
+  # at all (DNS failure, connection refused, timeout) - it still exits
+  # non-zero in that case though, so the `|| status="000"` here exists only
+  # to stop `set -e` aborting the retry loop, not to supply a fallback
+  # value. Putting it inside the command substitution (`|| echo "000"`)
+  # meant BOTH curl's own "000" and the fallback "000" landed in the same
+  # captured string, showing up as the confusing "000000" in the logs.
+  status=$(curl -s -o /dev/null -w "%{http_code}" "$URL") || status="000"
 
   if [ "$status" = "200" ]; then
     echo "Healthy (attempt $attempt/$MAX_ATTEMPTS, HTTP $status)"
