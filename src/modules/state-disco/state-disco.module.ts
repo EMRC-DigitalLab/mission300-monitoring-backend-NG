@@ -5,5 +5,6 @@ import { StateDiscoService } from "@/modules/state-disco/state-disco.service";
 @Module({
   controllers: [StateDiscoController],
   providers: [StateDiscoService],
+  exports: [StateDiscoService],
 })
 export class StateDiscoModule {}

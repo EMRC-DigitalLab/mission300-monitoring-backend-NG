@@ -160,13 +160,18 @@ export class ExecutiveOverviewService {
   /** Matches compactOutcomeCardSchema - used for peopleWithElectricityAccess and cleanCookingAccess. */
   private buildCompactOutcomeCard(profile: KpiProfile, title: string, icon: string) {
     const baseline = profile.baseline ?? 0;
-    const current = profile.current ?? baseline;
+    const current = profile.current ?? 0;
     const target = profile.target !== null && profile.target > 0 ? profile.target : null;
 
     return {
       title,
       icon,
-      value: profile.unit === "%" ? `${current.toFixed(1)}%` : formatCompact(current),
+      value:
+        profile.current === null
+          ? profile.currentLabel
+          : profile.unit === "%"
+            ? `${current.toFixed(1)}%`
+            : formatCompact(current),
       current,
       baseline,
       target,
@@ -198,7 +203,7 @@ export class ExecutiveOverviewService {
       title: "Electricity access rate",
       icon: "access",
       kpiId: profile.id,
-      value: `${current.toFixed(1)}%`,
+      value: profile.current === null ? profile.currentLabel : `${current.toFixed(1)}%`,
       rawValue: current,
       sourceYear: profile.reportingPeriod || "Not yet published",
       previousPublication: previous
@@ -223,7 +228,7 @@ export class ExecutiveOverviewService {
       kpiId: profile.id,
       availableMw,
       installedMw,
-      value: `${(availableMw / 1000).toFixed(1)} GW`,
+      value: profile.current === null ? profile.currentLabel : `${(availableMw / 1000).toFixed(1)} GW`,
       availabilityRatio: Math.max(0, Math.min(100, Math.round((availableMw / installedMw) * 1000) / 10)),
       sparkline: profile.history.map((p) => ({ period: p.period, value: p.value })),
       benchmarkLabel: `of ${(installedMw / 1000).toFixed(1)} GW installed`,
@@ -238,7 +243,7 @@ export class ExecutiveOverviewService {
   private buildAccessChannel(id: string, profile: KpiProfile) {
     const current = profile.current ?? 0;
     const target = profile.target;
-    const percentComplete = target ? Math.round((current / target) * 1000) / 10 : null;
+    const percentComplete = target !== null && target > 0 ? Math.round((current / target) * 1000) / 10 : null;
 
     return {
       id,
@@ -276,9 +281,11 @@ export class ExecutiveOverviewService {
       target,
       direction: profile.direction,
       value:
-        profile.unit === "%"
-          ? `${current.toFixed(1)}%`
-          : `${numberFormatter.format(current)} ${profile.unit}`,
+        profile.current === null
+          ? profile.currentLabel
+          : profile.unit === "%"
+            ? `${current.toFixed(1)}%`
+            : `${numberFormatter.format(current)} ${profile.unit}`,
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
       caption: config.caption,
       source: toSourceTag(profile.validationStatus),
