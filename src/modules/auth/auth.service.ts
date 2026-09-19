@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
-import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
 import { AccountStatus } from "@prisma/client";
 import * as argon2 from "argon2";
 import { PrismaService } from "@/prisma/prisma.service";
@@ -15,6 +16,21 @@ import type { SetPasswordDto } from "@/modules/auth/dto/set-password.dto";
 const SET_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000; // invite link: 24h
 const RESET_PASSWORD_TTL_MS = 60 * 60 * 1000; // forgot-password link: 1h
 
+const DURATION_UNIT_MS: Record<string, number> = {
+  s: 1000,
+  m: 60 * 1000,
+  h: 60 * 60 * 1000,
+  d: 24 * 60 * 60 * 1000,
+};
+
+/** Parses "7d", "15m", etc. (the same shorthand JWT_ACCESS_TTL/JWT_REFRESH_TTL
+ * already use for jsonwebtoken's own expiresIn) into a millisecond duration. */
+function parseDurationMs(value: string): number {
+  const match = /^(\d+)([smhd])$/.exec(value.trim());
+  if (!match) throw new Error(`Invalid duration "${value}" - expected a number followed by s/m/h/d.`);
+  return Number(match[1]) * DURATION_UNIT_MS[match[2]!]!;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -22,7 +38,12 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly email: EmailService,
     private readonly branding: BrandingService,
+    private readonly config: ConfigService,
   ) {}
+
+  private get refreshTokenTtlMs(): number {
+    return parseDurationMs(this.config.get<string>("JWT_REFRESH_TTL", "7d"));
+  }
 
   /** Whatever an admin has currently saved in Administration > Customization. */
   private async getEmailBrand(): Promise<EmailBrand> {
@@ -35,29 +56,14 @@ export class AuthService {
   }
 
   /**
-   * Step 1 of the two-step login flow. Deliberately identical response
-   * (404, same message) whether the email doesn't exist or exists but
-   * isn't ACTIVE (PENDING/INACTIVE/SUSPENDED) - never reveal which.
+   * Step 1 of the two-step login flow (WEB-006 fix). Always the same 200
+   * response with just the email echoed back, whether the account doesn't
+   * exist, isn't ACTIVE, or is a real active account - no status-code
+   * oracle, no displayName/institution leak. Personalization now happens
+   * only after a successful password verification in login() below.
    */
   async identify({ email }: IdentifyDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: { institution: true },
-    });
-    if (!user || user.status !== AccountStatus.ACTIVE) {
-      throw new NotFoundException("We could not find an active account for that email.");
-    }
-    // NOTE (WEB-006 in the audit report): this leaks displayName/institution
-    // for any known-active email, and the 404-vs-200 split is itself an
-    // enumeration oracle. Both are required by the real external API
-    // contract m300-frontend mirrors - identifiedAccountSchema in
-    // src/api/schemas/auth.ts makes both fields non-optional, and removing
-    // either breaks sign-in for real users (confirmed by testing: the
-    // frontend fails Zod validation and never advances past this step
-    // without them). A real fix here needs a coordinated contract change
-    // with the frontend, not a backend-only patch - left as accepted risk
-    // for this pass, mitigated by the rate limiting added for WEB-007.
-    return { email: user.email, displayName: user.fullName, institution: user.institution?.name ?? "" };
+    return { email };
   }
 
   /** Step 2. One generic 401 for every failure reason - never reveal which. */
@@ -71,7 +77,8 @@ export class AuthService {
       throw new UnauthorizedException("Invalid email or password");
     }
 
-    const accessToken = await this.jwt.signAsync({ sub: user.id });
+    const accessToken = await this.jwt.signAsync({ sub: user.id, tokenVersion: user.tokenVersion });
+    const refreshToken = await this.issueRefreshToken(user.id);
 
     // Read by userAccountSchema.lastLogin in the Administration module's
     // user table (see overview.mappers.ts) - null until this fires once.
@@ -79,6 +86,7 @@ export class AuthService {
 
     return {
       accessToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -89,6 +97,56 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * Issues a new access token from a still-valid refresh token, rotating it
+   * in the same call - the consumed row is revoked and a fresh one takes
+   * its place, so a stolen-and-replayed old cookie value is caught
+   * immediately (its hash no longer matches any non-revoked row) rather
+   * than staying silently redeemable for its full remaining TTL.
+   */
+  async refresh(rawToken: string) {
+    const tokenHash = hashToken(rawToken);
+    const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: true } });
+    if (!record || record.revokedAt || record.expiresAt < new Date() || record.user.status !== AccountStatus.ACTIVE) {
+      throw new UnauthorizedException("Session expired - please log in again.");
+    }
+
+    await this.prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } });
+    const refreshToken = await this.issueRefreshToken(record.userId);
+    const accessToken = await this.jwt.signAsync({ sub: record.userId, tokenVersion: record.user.tokenVersion });
+
+    return { accessToken, refreshToken };
+  }
+
+  /**
+   * Revokes every JWT issued to this user so far (WEB-008 fix) - bumping
+   * tokenVersion means the next JwtStrategy.validate() call for any
+   * previously-issued token fails the version check immediately, rather
+   * than waiting out the token's own TTL. Also revokes every outstanding
+   * refresh token, so a logout can't be silently bypassed by a refresh
+   * token issued before it - the two credential types must die together.
+   */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+  }
+
+  /** Generates a raw refresh token, storing only its hash - see
+   * createPasswordResetToken's own comment for why. */
+  private async issueRefreshToken(userId: string): Promise<string> {
+    const token = randomBytes(32).toString("hex");
+    await this.prisma.refreshToken.create({
+      data: { userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + this.refreshTokenTtlMs) },
+    });
+    return token;
+  }
+
 
   /**
    * Always resolves the same way regardless of whether the account exists -

@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from "@/common/decorators/current-user.decorat
 
 interface JwtPayload {
   sub: string;
+  tokenVersion: number;
 }
 
 @Injectable()
@@ -27,6 +28,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || user.status !== AccountStatus.ACTIVE) {
       throw new UnauthorizedException("Account is inactive or no longer exists");
+    }
+    if (user.tokenVersion !== payload.tokenVersion) {
+      throw new UnauthorizedException("Session has been signed out - please log in again");
     }
     return {
       id: user.id,

@@ -1,10 +1,45 @@
-node_modules
-dist
-coverage
+# Version control and editor metadata
 .git
+.gitignore
 .github
 .husky
-.env*
-!.env.example
-*.md
+.idea
+.vscode
+
+# Dependencies, build output, and caches
+node_modules
+dist
+build
+coverage
+.nyc_output
+.cache
+.nest
 *.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+.secrets-local
+
+# Logs and runtime data
+*.log
+*.pid
+storage
+tmp
+temp
+
+# Files not required to build or run the API image
+test
+test-data
+docs
+*.md
+docker-compose*.yml
+docker-compose*.yaml
+docker/docker-compose*.yml
+docker/docker-compose*.yaml
+
+# OS and temporary Office files
+.DS_Store
+Thumbs.db
+Desktop.ini
+~$*

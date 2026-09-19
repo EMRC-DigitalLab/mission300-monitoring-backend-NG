@@ -41,7 +41,7 @@ export class BottlenecksController {
   }
 
   @Get("by-project/:projectId")
-  getByProject(@Param("projectId") projectId: string) {
-    return this.bottlenecks.getByProject(projectId);
+  getByProject(@Param("projectId") projectId: string, @Query() query: BottlenecksQueryDto) {
+    return this.bottlenecks.getByProject(projectId, query);
   }
 }

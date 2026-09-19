@@ -1,9 +1,16 @@
 import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
-import type { DatasetField } from "@prisma/client";
+import type { Dataset, DatasetField } from "@prisma/client";
+import { DISCO_CANONICAL_NAMES, MONTH_NAMES, MONTH_TO_QUARTER } from "@/modules/data-submissions/disco-institutions";
 
 const SHEET_NAME = "Submission";
+const LOOKUP_SHEET_NAME = "Lookup";
 const PERIOD_COLUMN_KEY = "period";
+const DISCOS_COLUMN_KEY = "discos";
+const DATE_COLUMN_KEY = "date";
+const YEAR_COLUMN_KEY = "year";
+const MONTH_NAME_COLUMN_KEY = "monthName";
+const DROPDOWN_ROW_COUNT = 500;
 
 function periodColumnHeader(frequency: string): string {
   if (frequency === "Monthly") return "Period (e.g. January 2026)";
@@ -11,15 +18,68 @@ function periodColumnHeader(frequency: string): string {
   return "Period (e.g. Q3 2026)";
 }
 
-export async function generateTemplateBuffer(fields: DatasetField[], frequency: string): Promise<Buffer> {
+export async function generateTemplateBuffer(dataset: Dataset, fields: DatasetField[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(SHEET_NAME);
-  sheet.columns = [
-    { header: periodColumnHeader(frequency), key: PERIOD_COLUMN_KEY, width: 24 },
-    ...[...fields]
-      .sort((a, b) => a.order - b.order)
-      .map((field) => ({ header: field.label, key: field.id, width: 28 })),
-  ];
+  const measureColumns = [...fields]
+    .sort((a, b) => a.order - b.order)
+    .map((field) => ({ header: field.label, key: field.id, width: 28 }));
+
+  if (dataset.submissionMode === "NERC_CONSOLIDATED") {
+    const identifierColumns = [{ header: "Discos", key: DISCOS_COLUMN_KEY, width: 32 }];
+    const hasMonthColumn = dataset.frequency === "Monthly";
+    if (dataset.frequency === "Monthly") {
+      identifierColumns.push(
+        { header: "Date", key: DATE_COLUMN_KEY, width: 16 },
+        { header: "Year", key: YEAR_COLUMN_KEY, width: 10 },
+        { header: "Month_Name", key: MONTH_NAME_COLUMN_KEY, width: 16 },
+      );
+    } else if (dataset.frequency === "Quarterly") {
+      identifierColumns.push({ header: "Date", key: DATE_COLUMN_KEY, width: 16 }, { header: "Year", key: YEAR_COLUMN_KEY, width: 10 });
+    } else {
+      identifierColumns.push({ header: "Year", key: YEAR_COLUMN_KEY, width: 10 });
+    }
+    sheet.columns = [...identifierColumns, ...measureColumns];
+
+    // Discos/Month_Name are free text otherwise, and a typo there silently
+    // fails to resolve to an institution/period at upload time - a
+    // dropdown constrains entry to values the parser actually recognizes.
+    // Long option lists don't fit Excel's ~255-char inline list formula,
+    // so they live on a hidden lookup sheet the dropdown references.
+    const lookupSheet = workbook.addWorksheet(LOOKUP_SHEET_NAME, { state: "veryHidden" });
+    DISCO_CANONICAL_NAMES.forEach((name, index) => {
+      lookupSheet.getCell(index + 1, 1).value = name;
+    });
+    MONTH_NAMES.forEach((name, index) => {
+      lookupSheet.getCell(index + 1, 2).value = name;
+    });
+
+    const discosColumnNumber = 1;
+    const monthNameColumnNumber = hasMonthColumn ? identifierColumns.findIndex((c) => c.key === MONTH_NAME_COLUMN_KEY) + 1 : null;
+    for (let row = 2; row <= DROPDOWN_ROW_COUNT + 1; row++) {
+      sheet.getCell(row, discosColumnNumber).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`${LOOKUP_SHEET_NAME}!$A$1:$A$${DISCO_CANONICAL_NAMES.length}`],
+        showErrorMessage: true,
+        errorStyle: "error",
+        error: "Pick a DisCo from the dropdown list.",
+      };
+      if (monthNameColumnNumber) {
+        sheet.getCell(row, monthNameColumnNumber).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`${LOOKUP_SHEET_NAME}!$B$1:$B$${MONTH_NAMES.length}`],
+          showErrorMessage: true,
+          errorStyle: "error",
+          error: "Pick a month from the dropdown list.",
+        };
+      }
+    }
+  } else {
+    sheet.columns = [{ header: periodColumnHeader(dataset.frequency), key: PERIOD_COLUMN_KEY, width: 24 }, ...measureColumns];
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
@@ -27,6 +87,7 @@ export async function generateTemplateBuffer(fields: DatasetField[], frequency: 
 export interface ParsedSubmissionRow {
   period: string;
   values: Record<string, string>;
+  institutionName?: string;
 }
 
 function normalizeLabel(label: string): string {
@@ -45,9 +106,28 @@ function isRowBlank(row: ExcelJS.Row): boolean {
   return !hasValue;
 }
 
+type ColumnRole =
+  | { kind: "period" }
+  | { kind: "field"; fieldId: string }
+  | { kind: "discos" }
+  | { kind: "year" }
+  | { kind: "monthName" }
+  | { kind: "ignored" };
+
+function periodFromComponents(frequency: string, year: string, monthName: string): string {
+  if (frequency === "Monthly") return `${monthName} ${year}`;
+  if (frequency === "Quarterly") {
+    const quarter = MONTH_TO_QUARTER[monthName];
+    if (!quarter) throw new Error(`Unrecognized month name "${monthName}" while deriving a quarterly period.`);
+    return `Q${quarter} ${year}`;
+  }
+  return year;
+}
+
 export async function parseSubmissionFile(
   buffer: Buffer,
   fileName: string,
+  dataset: Dataset,
   fields: DatasetField[],
 ): Promise<ParsedSubmissionRow[]> {
   const workbook = new ExcelJS.Workbook();
@@ -63,15 +143,38 @@ export async function parseSubmissionFile(
     throw new Error("The uploaded file has no header row to read.");
   }
 
+  const consolidated = dataset.submissionMode === "NERC_CONSOLIDATED";
   const fieldByLabel = new Map(fields.map((field) => [normalizeLabel(field.label), field]));
-  const columnRoles = new Map<number, { kind: "period" } | { kind: "field"; fieldId: string }>();
+  const columnRoles = new Map<number, ColumnRole>();
   headerRow.eachCell((cell, columnNumber) => {
     const headerText = String(cell.value ?? "");
-    if (isPeriodHeader(headerText)) {
+    const normalized = normalizeLabel(headerText);
+
+    if (consolidated) {
+      if (normalized === "discos") {
+        columnRoles.set(columnNumber, { kind: "discos" });
+        return;
+      }
+      if (normalized === "year") {
+        columnRoles.set(columnNumber, { kind: "year" });
+        return;
+      }
+      if (normalized === "month_name") {
+        columnRoles.set(columnNumber, { kind: "monthName" });
+        return;
+      }
+      // "Date" is decorative/unreliable in the source workbook this
+      // layout mirrors - Year + Month_Name are the trustworthy pair.
+      if (normalized === "date") {
+        columnRoles.set(columnNumber, { kind: "ignored" });
+        return;
+      }
+    } else if (isPeriodHeader(headerText)) {
       columnRoles.set(columnNumber, { kind: "period" });
       return;
     }
-    const field = fieldByLabel.get(normalizeLabel(headerText));
+
+    const field = fieldByLabel.get(normalized);
     if (field) columnRoles.set(columnNumber, { kind: "field", fieldId: field.id });
   });
 
@@ -81,14 +184,24 @@ export async function parseSubmissionFile(
     if (isRowBlank(dataRow)) continue;
 
     let period = "";
+    let institutionName: string | undefined;
+    let year = "";
+    let monthName = "";
     const values: Record<string, string> = {};
     for (const [columnNumber, role] of columnRoles) {
       const raw = dataRow.getCell(columnNumber).value;
       const text = raw === null || raw === undefined ? "" : String(raw).trim();
       if (role.kind === "period") period = text;
-      else values[role.fieldId] = text;
+      else if (role.kind === "discos") institutionName = text;
+      else if (role.kind === "year") year = text;
+      else if (role.kind === "monthName") monthName = text;
+      else if (role.kind === "field") values[role.fieldId] = text;
     }
-    rows.push({ period, values });
+
+    if (consolidated) {
+      period = year ? periodFromComponents(dataset.frequency, year, monthName) : "";
+    }
+    rows.push({ period, values, institutionName });
   }
 
   return rows;

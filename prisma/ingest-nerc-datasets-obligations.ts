@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, DatasetFieldType } from "@prisma/client";
+import { PrismaClient, DatasetFieldType, DatasetSubmissionMode } from "@prisma/client";
+import { DISCO_NAMES, discoInstitutionId } from "./lib/disco-institutions";
 
 /**
  * Turns each sheet of the compiled NERC workbook into a reporting Dataset:
@@ -7,18 +8,23 @@ import { PrismaClient, DatasetFieldType } from "@prisma/client";
  * telling a given institution to file it for a given period.
  *
  * One sheet = one Dataset. The workbook is NERC's own reporting
- * requirement, so NERC owns every dataset definition; the institutions that
- * actually file differ:
- * - the 10 DisCo sheets are filed by each of the 12 DisCos
+ * requirement, so NERC owns every dataset definition and files it:
+ * - the 10 DisCo sheets are filed by NERC as one consolidated,
+ *   NERC_CONSOLIDATED submission per period, covering all 12 DisCos in a
+ *   single multi-row template (Discos/Date/Year/Month_Name identifier
+ *   columns plus the sheet's measure columns) - mirroring the raw NERC
+ *   workbook's own layout, since NERC is the one compiling this data.
  * - the 2 GenCo sheets are filed by NISO / TCN, the system operator that
- *   reports generation
+ *   reports generation, one PER_INSTITUTION obligation per period as before.
  *
- * Field selection follows from what an obligation already pins. An
- * obligation is institution x dataset x reporting period, so the sheet's
- * Disco/Year/Month columns are not asked for again - only the measures are.
- * Where a sheet varies *within* one institution and period, that dimension
- * does become fields: "Disco Metering" splits by Customer_Type, so it asks
- * for metered and unmetered counts separately.
+ * Field selection for PER_INSTITUTION datasets follows from what an
+ * obligation already pins: institution x dataset x reporting period, so no
+ * Disco/Year/Month columns are asked for, only the measures. For
+ * NERC_CONSOLIDATED datasets those identifier columns are added back onto
+ * the template by dataset-template.ts, since one file now covers many
+ * institutions and periods. Where a sheet varies *within* one institution
+ * and period, that dimension becomes its own field: "Disco Metering" splits
+ * by Customer_Type, so it asks for metered and unmetered counts separately.
  *
  * The two GenCo sheets are per-plant in the source workbook, which a
  * single-row obligation template cannot hold. They are defined here as the
@@ -54,25 +60,6 @@ const NERC_INSTITUTION_ID = "seed-institution-nerc";
 const NERC_INSTITUTION_NAME = "Nigerian Electricity Regulatory Commission (NERC)";
 const NISO_INSTITUTION_ID = "seed-institution-niso-tcn";
 const NISO_INSTITUTION_NAME = "NISO / TCN";
-
-const DISCO_NAMES = [
-  "Abuja Electricity Distribution Company",
-  "Benin Electricity Distribution Company",
-  "Eko Electricity Distribution Company",
-  "Enugu Electricity Distribution Company",
-  "Ibadan Electricity Distribution Company",
-  "Ikeja Electric",
-  "Jos Electricity Distribution Company",
-  "Kaduna Electricity Distribution Company",
-  "Kano Electricity Distribution Company",
-  "Port Harcourt Electricity Distribution Company",
-  "Yola Electricity Distribution Company",
-  "Aba Power Limited",
-];
-
-function discoInstitutionId(fullName: string): string {
-  return `seed-disco-${fullName.toLowerCase().replace(/[^a-z]+/g, "-")}`;
-}
 
 type Cadence = "Monthly" | "Quarterly" | "Annual";
 type Filer = "disco" | "niso";
@@ -395,6 +382,32 @@ async function main() {
       }),
     );
   }
+  const discoIds = new Set(discos.map((disco) => disco.id));
+
+  // One-time cleanup: the 10 "disco"-filed datasets used to fan out one
+  // Obligation per DisCo; they now file as one NERC_CONSOLIDATED submission
+  // per period. Drop the old per-DisCo obligations so they don't linger
+  // orphaned - but never touch one that already carries real review
+  // history, since that would silently discard it.
+  const discoDatasetIds = DATASETS.filter((spec) => spec.filedBy === "disco").map((spec) => spec.id);
+  const staleObligations = await prisma.obligation.findMany({
+    where: { datasetId: { in: discoDatasetIds }, institutionId: { in: [...discoIds] } },
+    include: { submissions: { select: { id: true } } },
+  });
+  const staleWithHistory = staleObligations.filter(
+    (obligation) => obligation.acceptedSubmissionId !== null || obligation.submissions.length > 0,
+  );
+  if (staleWithHistory.length > 0) {
+    throw new Error(
+      `Refusing to switch these datasets to NERC_CONSOLIDATED: ${staleWithHistory.length} old ` +
+        `per-DisCo obligation(s) already have submission history - resolve manually first: ` +
+        staleWithHistory.map((obligation) => obligation.id).join(", "),
+    );
+  }
+  if (staleObligations.length > 0) {
+    await prisma.obligation.deleteMany({ where: { id: { in: staleObligations.map((o) => o.id) } } });
+    console.log(`Removed ${staleObligations.length} stale per-DisCo obligation(s) with no submission history.`);
+  }
 
   const now = new Date();
   let datasetCount = 0;
@@ -415,6 +428,8 @@ async function main() {
       ownerInstitutionId: nerc.id,
       templateFileName,
       isActive: true,
+      submissionMode:
+        spec.filedBy === "disco" ? DatasetSubmissionMode.NERC_CONSOLIDATED : DatasetSubmissionMode.PER_INSTITUTION,
     };
 
     const dataset = await prisma.dataset.upsert({
@@ -452,7 +467,9 @@ async function main() {
     }
 
     const { reportingPeriod, dueDate } = currentPeriod(spec.frequency, now);
-    const filers = spec.filedBy === "disco" ? discos : [niso];
+    // "disco" datasets are now filed by NERC as one consolidated submission
+    // per period covering all DisCos, not fanned out per DisCo.
+    const filers = spec.filedBy === "disco" ? [nerc] : [niso];
     for (const filer of filers) {
       await prisma.obligation.upsert({
         where: {

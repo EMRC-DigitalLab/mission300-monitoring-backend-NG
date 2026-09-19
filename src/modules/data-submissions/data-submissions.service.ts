@@ -28,6 +28,7 @@ import {
   parseSubmissionFile,
   validateFieldValues,
 } from "@/modules/data-submissions/dataset-template";
+import { resolveDiscoName } from "@/modules/data-submissions/disco-institutions";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -149,6 +150,8 @@ export class DataSubmissionsService {
   }
 
   async getObligations(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
+    await this.materializeBacklogObligations(user, query);
+
     const pageSize = Math.min(100, query.pageSize ?? DEFAULT_PAGE_SIZE);
     const search = query.search?.trim().toLowerCase() ?? "";
 
@@ -207,6 +210,13 @@ export class DataSubmissionsService {
 
     const submissions = await this.prisma.submission.findMany({
       where: {
+        // Historical KPI backfills (ingest-*.ts scripts) create a Submission
+        // row purely to satisfy KpiValue's required sourceSubmissionItem FK -
+        // they never went through the real obligation workflow and have no
+        // obligation, period or focal person to show here, so they're
+        // excluded from this operational view rather than rendering as
+        // "Unlinked submission / Unknown period" noise.
+        obligationId: { not: null },
         // scopeInstitutionFilter(user) last - see comment in getObligations().
         ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
         ...scopeInstitutionFilter(user),
@@ -331,9 +341,9 @@ export class DataSubmissionsService {
     const sourceReference = dto.sourceReference?.trim();
     if (!sourceReference) throw new BadRequestException("Provide the source reference for this submission.");
 
-    let rows: { period: string; values: Record<string, string> }[];
+    let rows: { period: string; values: Record<string, string>; institutionName?: string }[];
     try {
-      rows = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset.fields);
+      rows = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset, obligation.dataset.fields);
     } catch {
       throw new BadRequestException("Could not read the uploaded file - use the provided template.");
     }
@@ -341,30 +351,75 @@ export class DataSubmissionsService {
       throw new BadRequestException("The uploaded file has no data rows to submit.");
     }
 
+    const consolidated = obligation.dataset.submissionMode === "NERC_CONSOLIDATED";
     const resolved: { period: string; values: Record<string, string>; obligationId: string; institutionId: string }[] = [];
     const unmatchedPeriods: string[] = [];
-    for (const row of rows) {
-      if (!row.period) {
-        throw new BadRequestException("Every row must have a Period value.");
+
+    if (consolidated) {
+      const unresolvedNames = new Set<string>();
+      for (const row of rows) {
+        if (!row.institutionName) unresolvedNames.add("(blank)");
+        else if (!resolveDiscoName(row.institutionName)) unresolvedNames.add(row.institutionName);
       }
-      if (row.period === obligation.reportingPeriod) {
-        resolved.push({ ...row, obligationId: obligation.id, institutionId: obligation.institutionId });
-        continue;
+      if (unresolvedNames.size > 0) {
+        throw new BadRequestException(
+          `Could not recognize these DisCo name(s) in the Discos column: ${[...unresolvedNames].join(", ")}.`,
+        );
       }
-      const matching = await this.prisma.obligation.findUnique({
-        where: {
-          institutionId_datasetId_reportingPeriod: {
-            institutionId: obligation.institutionId,
+      if (rows.some((row) => !row.period)) {
+        throw new BadRequestException("Every row must have Year (and Month_Name, for monthly datasets) filled in.");
+      }
+
+      for (const row of rows) {
+        const canonicalName = resolveDiscoName(row.institutionName as string) as string;
+        const institution = await this.prisma.institution.findFirst({
+          where: { name: { equals: canonicalName, mode: "insensitive" } },
+        });
+        if (!institution) {
+          throw new BadRequestException(`DisCo institution not found for "${canonicalName}".`);
+        }
+        const rowObligation = await this.prisma.obligation.upsert({
+          where: {
+            institutionId_datasetId_reportingPeriod: {
+              institutionId: institution.id,
+              datasetId: obligation.dataset.id,
+              reportingPeriod: row.period,
+            },
+          },
+          create: {
+            institutionId: institution.id,
             datasetId: obligation.dataset.id,
             reportingPeriod: row.period,
+            dueDate: dueDateForPeriod(obligation.dataset.frequency, row.period),
           },
-        },
-      });
-      if (!matching) {
-        unmatchedPeriods.push(row.period);
-        continue;
+          update: {},
+        });
+        resolved.push({ ...row, obligationId: rowObligation.id, institutionId: institution.id });
       }
-      resolved.push({ ...row, obligationId: matching.id, institutionId: matching.institutionId });
+    } else {
+      for (const row of rows) {
+        if (!row.period) {
+          throw new BadRequestException("Every row must have a Period value.");
+        }
+        if (row.period === obligation.reportingPeriod) {
+          resolved.push({ ...row, obligationId: obligation.id, institutionId: obligation.institutionId });
+          continue;
+        }
+        const matching = await this.prisma.obligation.findUnique({
+          where: {
+            institutionId_datasetId_reportingPeriod: {
+              institutionId: obligation.institutionId,
+              datasetId: obligation.dataset.id,
+              reportingPeriod: row.period,
+            },
+          },
+        });
+        if (!matching) {
+          unmatchedPeriods.push(row.period);
+          continue;
+        }
+        resolved.push({ ...row, obligationId: matching.id, institutionId: matching.institutionId });
+      }
     }
 
     if (resolved.length === 0) {
@@ -431,7 +486,7 @@ export class DataSubmissionsService {
       include: { fields: true },
     });
     if (!dataset) throw new NotFoundException("Template not found.");
-    return generateTemplateBuffer(dataset.fields, dataset.frequency);
+    return generateTemplateBuffer(dataset, dataset.fields);
   }
 
   async getValidationQueue(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
@@ -466,7 +521,15 @@ export class DataSubmissionsService {
       include: SUBMISSION_DETAIL_INCLUDE,
     });
     if (!submission) throw new NotFoundException("Submission not found.");
-    return toSubmissionDetail(submission);
+
+    const isReviewer = (user.roles?.length ? user.roles : [user.role]).some(
+      (role) => role === "DATA_REVIEWER" || role === "VALIDATOR",
+    );
+    const isSelfReview = submission.submittedById === user.id;
+    const { allowSelfReview } = await this.securitySettings.get();
+    const canDecide = isReviewer && (!isSelfReview || allowSelfReview);
+
+    return toSubmissionDetail(submission, { canDecide });
   }
 
   /**
@@ -561,6 +624,40 @@ export class DataSubmissionsService {
   }
 
   /**
+   * Bulk approve/reject/etc from the Submission history table. Reuses
+   * recordDecision() per id rather than duplicating its transaction, so a
+   * bulk decision is exactly N individual decisions - same guards
+   * (self-review, already-decided), same KpiValue publishing. One
+   * submission failing (e.g. someone else decided it a moment ago) does
+   * not block the rest; each outcome is reported back individually so the
+   * UI can show exactly what happened per row.
+   */
+  async bulkRecordDecision(user: AuthenticatedUser, ids: string[], dto: RecordValidationDecisionDto) {
+    const succeeded: Awaited<ReturnType<typeof this.recordDecision>>[] = [];
+    const failed: { submissionId: string; message: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        succeeded.push(await this.recordDecision(user, id, dto));
+      } catch (error) {
+        failed.push({ submissionId: id, message: error instanceof Error ? error.message : "Decision failed." });
+      }
+    }
+
+    return {
+      decision: dto.decision,
+      approvedCount: succeeded.length,
+      failedCount: failed.length,
+      succeeded: succeeded.map((entry) => entry.submissionId),
+      failed,
+      message:
+        failed.length === 0
+          ? `${succeeded.length} submission${succeeded.length === 1 ? "" : "s"} decided.`
+          : `${succeeded.length} decided, ${failed.length} failed: ${failed.map((f) => f.message).join(" ")}`,
+    };
+  }
+
+  /**
    * Simple round-robin by current PENDING load - there's no explicit
    * "assign a reviewer" action anywhere in the real contract, so this
    * picks one at upload time rather than leaving every submission
@@ -586,6 +683,66 @@ export class DataSubmissionsService {
     const filter = scopeInstitutionFilter(user);
     if (filter.institutionId && filter.institutionId !== institutionId) {
       throw new ForbiddenException("You cannot submit data for another institution's obligation.");
+    }
+  }
+
+  /**
+   * Self-healing backlog: the seed script only ever creates the single
+   * most-recently-closed period's Obligation. If a filer goes quiet for
+   * months, nothing ever represented those missed periods - there was no
+   * row for them. On every read, for each (institution, dataset) pair the
+   * caller can see, find the last period that actually got an accepted
+   * submission and materialize every period between it and today's
+   * most-recently-closed one as a real, uploadable Obligation. Datasets
+   * with no accepted-submission baseline yet are left alone - there is
+   * nothing to measure a gap against, so today's single seeded obligation
+   * stands as-is rather than speculatively backfilling from dataset
+   * creation time.
+   */
+  private async materializeBacklogObligations(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
+    const scopeWhere = {
+      ...(query.institution && query.institution !== "all" ? { institutionId: query.institution } : {}),
+      ...(query.dataset && query.dataset !== "all" ? { datasetId: query.dataset } : {}),
+      ...scopeInstitutionFilter(user),
+    };
+
+    const groups = await this.prisma.obligation.groupBy({ by: ["institutionId", "datasetId"], where: scopeWhere });
+    if (groups.length === 0) return;
+
+    const now = new Date();
+    for (const group of groups) {
+      const dataset = await this.prisma.dataset.findUnique({ where: { id: group.datasetId } });
+      if (!dataset) continue;
+
+      const lastAccepted = await this.prisma.obligation.findFirst({
+        where: { institutionId: group.institutionId, datasetId: group.datasetId, acceptedSubmissionId: { not: null } },
+        orderBy: { dueDate: "desc" },
+      });
+      if (!lastAccepted) continue;
+
+      const frontierEnd = periodEndDate(dataset.frequency, mostRecentClosedPeriod(dataset.frequency, now));
+      let cursor = nextPeriod(dataset.frequency, lastAccepted.reportingPeriod);
+      let guard = 0;
+      while (periodEndDate(dataset.frequency, cursor).getTime() <= frontierEnd.getTime() && guard < 60) {
+        await this.prisma.obligation.upsert({
+          where: {
+            institutionId_datasetId_reportingPeriod: {
+              institutionId: group.institutionId,
+              datasetId: group.datasetId,
+              reportingPeriod: cursor,
+            },
+          },
+          create: {
+            institutionId: group.institutionId,
+            datasetId: group.datasetId,
+            reportingPeriod: cursor,
+            dueDate: dueDateForPeriod(dataset.frequency, cursor),
+          },
+          update: {},
+        });
+        cursor = nextPeriod(dataset.frequency, cursor);
+        guard++;
+      }
     }
   }
 
@@ -624,4 +781,84 @@ function buildObligationStats(views: ReturnType<typeof toObligationView>[]) {
 
 function daysUntil(isoDate: string): number {
   return Math.round((new Date(isoDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * Due date for an Obligation synthesized on the fly from a NERC_CONSOLIDATED
+ * upload row, for a period that may not have been pre-seeded. Approximates
+ * the seed script's own "15 days after period close" rule; since these
+ * obligations are typically created and satisfied by the same upload, the
+ * exact due date mostly matters for display, not enforcement.
+ */
+function dueDateForPeriod(frequency: string, period: string): Date {
+  if (frequency === "Monthly") {
+    const [monthName, yearText] = period.split(" ");
+    const monthIndex = MONTH_NAMES.indexOf(monthName);
+    const year = Number(yearText);
+    if (monthIndex === -1 || Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+    return new Date(Date.UTC(year, monthIndex + 1, 15));
+  }
+  if (frequency === "Quarterly") {
+    const match = /^Q([1-4]) (\d{4})$/.exec(period);
+    if (!match) throw new BadRequestException(`Unrecognized period "${period}".`);
+    const quarter = Number(match[1]);
+    const year = Number(match[2]);
+    return new Date(Date.UTC(year, quarter * 3, 15));
+  }
+  const year = Number(period);
+  if (Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+  return new Date(Date.UTC(year + 1, 0, 31));
+}
+
+/** Last calendar day of the given reporting period, for ordering/comparison. */
+function periodEndDate(frequency: string, period: string): Date {
+  if (frequency === "Monthly") {
+    const [monthName, yearText] = period.split(" ");
+    const monthIndex = MONTH_NAMES.indexOf(monthName);
+    const year = Number(yearText);
+    if (monthIndex === -1 || Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+    return new Date(Date.UTC(year, monthIndex + 1, 0));
+  }
+  if (frequency === "Quarterly") {
+    const match = /^Q([1-4]) (\d{4})$/.exec(period);
+    if (!match) throw new BadRequestException(`Unrecognized period "${period}".`);
+    const quarter = Number(match[1]);
+    const year = Number(match[2]);
+    return new Date(Date.UTC(year, quarter * 3, 0));
+  }
+  const year = Number(period);
+  if (Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+  return new Date(Date.UTC(year, 11, 31));
+}
+
+/** The reporting period immediately following the given one, same cadence. */
+function nextPeriod(frequency: string, period: string): string {
+  const dayAfterEnd = new Date(periodEndDate(frequency, period).getTime() + 24 * 60 * 60 * 1000);
+  if (frequency === "Monthly") return `${MONTH_NAMES[dayAfterEnd.getUTCMonth()]} ${dayAfterEnd.getUTCFullYear()}`;
+  if (frequency === "Quarterly") {
+    const quarter = Math.floor(dayAfterEnd.getUTCMonth() / 3) + 1;
+    return `Q${quarter} ${dayAfterEnd.getUTCFullYear()}`;
+  }
+  return String(dayAfterEnd.getUTCFullYear());
+}
+
+/** The most recently *closed* reporting period as of `now`, same cadence
+ * rule the seed script's currentPeriod() uses. */
+function mostRecentClosedPeriod(frequency: string, now: Date): string {
+  if (frequency === "Monthly") {
+    const closed = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    return `${MONTH_NAMES[closed.getUTCMonth()]} ${closed.getUTCFullYear()}`;
+  }
+  if (frequency === "Quarterly") {
+    const closedQuarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3 - 3;
+    const closed = new Date(Date.UTC(now.getUTCFullYear(), closedQuarterStartMonth, 1));
+    const quarter = Math.floor(closed.getUTCMonth() / 3) + 1;
+    return `Q${quarter} ${closed.getUTCFullYear()}`;
+  }
+  return String(now.getUTCFullYear() - 1);
 }

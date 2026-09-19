@@ -19,6 +19,7 @@ import { DataSubmissionsQueryDto } from "@/modules/data-submissions/dto/data-sub
 import { ManualEntryDto } from "@/modules/data-submissions/dto/manual-entry.dto";
 import { UploadSubmissionDto } from "@/modules/data-submissions/dto/upload-submission.dto";
 import { RecordValidationDecisionDto } from "@/modules/data-submissions/dto/record-validation-decision.dto";
+import { BulkRecordValidationDecisionDto } from "@/modules/data-submissions/dto/bulk-record-validation-decision.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
@@ -146,5 +147,12 @@ export class DataSubmissionsController {
     @Body() dto: RecordValidationDecisionDto,
   ) {
     return this.dataSubmissions.recordDecision(user, id, dto);
+  }
+
+  @Roles("DATA_REVIEWER", "VALIDATOR")
+  @Post("validation/bulk-decisions")
+  @AuditAction("submission.decision_recorded")
+  bulkRecordDecision(@CurrentUser() user: AuthenticatedUser, @Body() dto: BulkRecordValidationDecisionDto) {
+    return this.dataSubmissions.bulkRecordDecision(user, dto.submissionIds, dto);
   }
 }

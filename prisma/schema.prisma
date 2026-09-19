@@ -100,6 +100,11 @@ model User {
   /// invited account that has never signed in, matching userAccountSchema's
   /// lastLogin exactly.
   lastLogin      DateTime?
+  /// Incremented on logout (see AuthService.logout()) and embedded in every
+  /// JWT issued at login - JwtStrategy rejects a token whose tokenVersion
+  /// doesn't match the current value, giving short-lived JWTs a real
+  /// server-side revocation point (WEB-008 in the audit report).
+  tokenVersion   Int         @default(0)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -111,9 +116,11 @@ model User {
   uploadedFiles    UploadedFile[]
   webhookSubscriptions WebhookSubscription[]
   passwordResetTokens  PasswordResetToken[]
+  refreshTokens        RefreshToken[]
   scopeAssignments     ScopeAssignment[]
   focalForObligations  Obligation[]
   reviewingSubmissions Submission[]      @relation("SubmissionReviewer")
+  notifications        Notification[]
 
   @@index([institutionId])
   @@index([roles], type: Gin)
@@ -126,6 +133,20 @@ model SecuritySettings {
   updatedAt       DateTime @updatedAt
 
   @@map("security_settings")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  link        String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, read])
+  @@map("notifications")
 }
 
 // Read-only from the API's perspective - the real frontend (m300-frontend)
@@ -176,6 +197,23 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+// Opaque, rotating token backing the httpOnly refresh cookie - only its hash
+// is ever stored, same principle as PasswordResetToken above. Rotated on
+// every use (the consumed row is revoked, a fresh one issued) rather than
+// reused, so a stolen-and-replayed old cookie value is caught immediately.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 // Generic file storage record - any feature that lets a user upload an
@@ -371,6 +409,12 @@ model Dataset {
   templateFileName   String
   templateVersion    Int      @default(1)
   isActive           Boolean  @default(true)
+  // PER_INSTITUTION: one Obligation per filing institution per period, a
+  // single-row template (today's default for everything but the NERC-
+  // compiled DisCo sheets). NERC_CONSOLIDATED: one Obligation per period
+  // owned by the dataset's ownerInstitution, a multi-row template covering
+  // every DisCo at once (Discos/Date/Year/Month_Name identifier columns).
+  submissionMode     DatasetSubmissionMode @default(PER_INSTITUTION)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -379,6 +423,11 @@ model Dataset {
 
   @@index([pillarId])
   @@map("datasets")
+}
+
+enum DatasetSubmissionMode {
+  PER_INSTITUTION
+  NERC_CONSOLIDATED
 }
 
 enum DatasetFieldType {
@@ -990,7 +1039,7 @@ model BrandingSettings {
   secondaryColor String   @default("#ffca05")
   textColor      String   @default("#101828")
   sidebarColor   String   @default("#004972")
-  logoUrl        String   @default("/Logos/geapp.png")
+  logoUrl        String   @default("")
   /// Shape: { h1, h2, h3, h4, h5, h6, body } - each a Google Fonts family name.
   fonts          Json
   /// Shape: { code, symbol, locale } - ISO 4217 code, display symbol, locale for digit grouping.

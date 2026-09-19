@@ -323,7 +323,7 @@ export class BottlenecksService {
     return { record: toBottleneckRecord(bottleneck, new Date()) };
   }
 
-  async getByProject(projectId: string) {
+  async getByProject(projectId: string, query: BottlenecksQueryDto) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException("The project was not found.");
 
@@ -334,6 +334,7 @@ export class BottlenecksService {
       orderBy: { dateRaised: "desc" },
     });
 
-    return bottlenecks.map((b) => toBottleneckRecord(b, now));
+    const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+    return paginate(bottlenecks.map((b) => toBottleneckRecord(b, now)), query.page ?? 1, pageSize);
   }
 }

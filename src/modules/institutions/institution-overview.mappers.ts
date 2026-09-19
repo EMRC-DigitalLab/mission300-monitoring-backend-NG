@@ -1,9 +1,10 @@
 import type { Institution, KpiDefinition, KpiValue, Pillar, Programme, Project } from "@prisma/client";
 import { toObligationView } from "@/modules/data-submissions/data-submissions.mappers";
+import { toKebabCase } from "@/common/utils/enum-casing";
 
 type ObligationView = ReturnType<typeof toObligationView>;
 
-export function buildObligationSummary(views: ObligationView[]) {
+export function buildObligationSummary(views: ObligationView[], fulfilledCount: number) {
   const byStatus = new Map<string, { code: string; label: string; tone: string; count: number }>();
   for (const view of views) {
     const existing = byStatus.get(view.status.code);
@@ -11,7 +12,6 @@ export function buildObligationSummary(views: ObligationView[]) {
     else byStatus.set(view.status.code, { ...view.status, count: 1 });
   }
   const overdueCount = views.filter((v) => v.status.code === "overdue").length;
-  const fulfilledCount = views.filter((v) => v.acceptedSubmissionId !== null).length;
 
   return {
     total: views.length,
@@ -37,7 +37,7 @@ export function toInstitutionKpiView(latest: KpiValueWithDefinition) {
     value,
     target,
     targetLabel: def.targetLabel || null,
-    direction: def.direction,
+    direction: toKebabCase(def.direction) as "higher-is-better" | "lower-is-better",
     onTrack: target === null ? null : def.direction === "HIGHER_IS_BETTER" ? value >= target : value <= target,
   };
 }
@@ -49,8 +49,8 @@ export function toInstitutionProgrammeView(programme: ProgrammeWithPillar) {
     id: programme.id,
     name: programme.name,
     pillar: programme.pillar.slug,
-    status: programme.status,
-    priority: programme.priority,
+    status: toKebabCase(programme.status),
+    priority: toKebabCase(programme.priority),
     startDate: programme.startDate.toISOString(),
     endDate: programme.endDate.toISOString(),
     projectCount: programme.projects.length,
@@ -63,8 +63,8 @@ export function toInstitutionProjectView(project: Project & { pillar: Pillar; pr
     name: project.name,
     programme: project.programme.name,
     pillar: project.pillar.slug,
-    lifecycleStage: project.lifecycleStage,
-    currentStatus: project.currentStatus,
+    lifecycleStage: toKebabCase(project.lifecycleStage),
+    currentStatus: toKebabCase(project.currentStatus),
     startDate: project.startDate.toISOString(),
     endDate: project.endDate?.toISOString() ?? null,
   };
@@ -73,15 +73,16 @@ export function toInstitutionProjectView(project: Project & { pillar: Pillar; pr
 export function toInstitutionOverviewResponse(params: {
   institution: Institution;
   obligationViews: ObligationView[];
+  fulfilledCount: number;
   kpis: KpiValueWithDefinition[];
   programmes: ProgrammeWithPillar[];
   projects: (Project & { pillar: Pillar; programme: Programme })[];
 }) {
-  const { institution, obligationViews, kpis, programmes, projects } = params;
+  const { institution, obligationViews, fulfilledCount, kpis, programmes, projects } = params;
   return {
     institution: { id: institution.id, name: institution.name, type: institution.type },
     obligations: {
-      summary: buildObligationSummary(obligationViews),
+      summary: buildObligationSummary(obligationViews, fulfilledCount),
       recent: obligationViews.slice(0, 5),
     },
     kpis: kpis.map(toInstitutionKpiView),

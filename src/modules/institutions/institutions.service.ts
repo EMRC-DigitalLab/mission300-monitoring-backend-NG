@@ -33,11 +33,16 @@ export class InstitutionsService {
     const institution = await this.prisma.institution.findUnique({ where: { id: user.institutionId } });
     if (!institution) throw new NotFoundException("Institution not found.");
 
-    const obligations = await this.prisma.obligation.findMany({
-      where: { institutionId: institution.id, acceptedSubmissionId: null },
-      include: OBLIGATION_INCLUDE,
-      orderBy: { dueDate: "asc" },
-    });
+    const [obligations, fulfilledCount] = await Promise.all([
+      this.prisma.obligation.findMany({
+        where: { institutionId: institution.id, acceptedSubmissionId: null },
+        include: OBLIGATION_INCLUDE,
+        orderBy: { dueDate: "asc" },
+      }),
+      this.prisma.obligation.count({
+        where: { institutionId: institution.id, acceptedSubmissionId: { not: null } },
+      }),
+    ]);
     const obligationIds = obligations.map((o) => o.id);
     const latestSubmissions = await this.prisma.submission.findMany({
       where: { obligationId: { in: obligationIds } },
@@ -81,6 +86,7 @@ export class InstitutionsService {
     return toInstitutionOverviewResponse({
       institution,
       obligationViews,
+      fulfilledCount,
       kpis: [...kpisByDefinition.values()],
       programmes,
       projects,

@@ -16,17 +16,89 @@ README for the boundary this backend is expected to honour.
 ```bash
 pnpm install
 copy .env.example .env.development
-docker compose -f docker/docker-compose.yml --env-file .env.development up
+pnpm docker:dev
 ```
 
 This starts Postgres + RabbitMQ + the API (hot-reloading, migrations run
-automatically on container start). Seed sample data once the stack is up:
+automatically on container start), reachable at `http://localhost:3000` by
+default. Seed sample data once the stack is up:
 
 ```bash
 pnpm prisma:seed
 ```
 
+Log in with the seeded accounts (password `ChangeMe123!` for all):
+`admin@m300.local` (system administrator), `provider@m300.local`
+(institutional data provider), `reviewer@m300.local` (data reviewer).
+
+**`.env.development` must hold local Postgres/RabbitMQ credentials** (the
+defaults in `.env.example` — `m300`/`m300`), not real staging/production
+secrets copied in for some other purpose. `docker-compose.yml` builds the
+`api` container's `DATABASE_URL`/`RABBITMQ_URL` directly from
+`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`/`RABBITMQ_USER`/
+`RABBITMQ_PASSWORD` in this file, so if it contains different credentials
+than whatever already initialized your local `postgres_data` volume, the API
+container will fail to authenticate against its own database.
+
+**Port conflicts:** if a default host port (`5432`, `5672`, `15672`, `3000`)
+is already taken by another project's stack on your machine, override it —
+either set the corresponding `*_HOST_PORT` variable directly in
+`.env.development`, or keep that file's staging-like values untouched and
+pass a second, local-only env file just for Compose's own variable
+substitution:
+
+```bash
+# docker/.env.local-compose (gitignored, `.env.*` pattern covers it)
+POSTGRES_USER=m300
+POSTGRES_PASSWORD=m300
+POSTGRES_DB=m300
+POSTGRES_HOST_PORT=5435
+RABBITMQ_USER=m300
+RABBITMQ_PASSWORD=m300
+
+docker compose -f docker/docker-compose.yml --env-file docker/.env.local-compose up -d --build
+```
+
+The `api` service's own `env_file: ../.env.development` still supplies app
+secrets (`JWT_SECRET`, `CORS_ORIGIN`, etc.) independently of whichever file
+you pass via `--env-file` — only the Postgres/RabbitMQ credentials and host
+ports come from the latter.
+
+If you add a new dependency (`pnpm add ...`) while the stack is already
+running, `up -d --build` alone won't pick it up — the container's
+`/app/node_modules` is an anonymous volume left over from the previous
+build. Force it to refresh with `--force-recreate -V`:
+
+```bash
+docker compose -f docker/docker-compose.yml --env-file .env.development \
+  up -d --build --force-recreate -V api
+```
+
+Docker commands are exposed through package scripts so they work consistently
+from the repository root:
+
+```bash
+pnpm docker:dev      # start in the foreground with Compose Watch
+pnpm docker:up       # start in the background with Compose Watch
+pnpm docker:logs     # follow API logs
+pnpm docker:ps       # show service status
+pnpm docker:down     # stop the local stack (keeps database volumes)
+pnpm docker:build    # build the production image as m300-backend:local
+pnpm docker:config   # validate the Compose configuration
+```
+
 Swagger docs are served at `/docs` once the API is running.
+
+### Running without Docker
+
+Point `DATABASE_URL`/`RABBITMQ_URL` in `.env.development` at your own local
+Postgres/RabbitMQ instances, then:
+
+```bash
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+pnpm dev
+```
 
 ## Quality commands
 
@@ -105,12 +177,12 @@ domains to those ports. This backend follows the exact same convention.
 **staging and production run on that same VPS**, isolated from each other
 (and from every other project on the box) purely through:
 
-| | staging | production |
-|---|---|---|
-| Docker Compose project (`-p`) | `m300-backend-staging` | `m300-backend-production` |
-| App directory | `/opt/m300-backend/staging/.env` | `/opt/m300-backend/production/.env` |
-| Host port (loopback-only, `127.0.0.1:<port>`) | `8099` | `8100` |
-| Database/RabbitMQ | own containers, own Docker network per project | own containers, own Docker network per project |
+|                                               | staging                                        | production                                     |
+| --------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| Docker Compose project (`-p`)                 | `m300-backend-staging`                         | `m300-backend-production`                      |
+| App directory                                 | `/opt/m300-backend/staging/.env`               | `/opt/m300-backend/production/.env`            |
+| Host port (loopback-only, `127.0.0.1:<port>`) | `8099`                                         | `8100`                                         |
+| Database/RabbitMQ                             | own containers, own Docker network per project | own containers, own Docker network per project |
 
 Ports were picked by checking `docker ps` on the box for what's already
 taken (`3000, 8000, 8082-8083, 8090-8098, 9000` were in use at last check) -
@@ -150,7 +222,7 @@ now and **must be tightened before this is a real production launch**:
   a real security hole once this API is handling real data publicly. Set
   `CORS_ORIGIN` to the actual frontend origin(s) once known.
 - **The deploy health check runs from inside the VPS** (`curl
-  127.0.0.1:<port>/health` over the same SSH session), not from a public
+127.0.0.1:<port>/health` over the same SSH session), not from a public
   URL, because the API is intentionally loopback-only until a domain +
   host-level reverse proxy exist. `scripts/health-check.sh` (external,
   polls a public URL) is still there for once that's wired up - swap it
