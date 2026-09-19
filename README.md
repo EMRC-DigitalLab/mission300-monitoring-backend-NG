@@ -7,9 +7,11 @@ README for the boundary this backend is expected to honour.
 
 ## Requirements
 
-- Node.js 24.x (see `.node-version`)
-- pnpm 10.x
-- Docker + Docker Compose (for local Postgres/RabbitMQ)
+- Docker + Docker Compose — the only thing required to actually run the app
+  (Postgres, RabbitMQ, and the API itself all run as containers)
+- Node.js 24.x (see `.node-version`) + pnpm 10.x — for `pnpm install` so your
+  editor can resolve types, and for the quality commands below; not used to
+  run the app directly
 
 ## Local development
 
@@ -89,16 +91,10 @@ pnpm docker:config   # validate the Compose configuration
 
 Swagger docs are served at `/docs` once the API is running.
 
-### Running without Docker
-
-Point `DATABASE_URL`/`RABBITMQ_URL` in `.env.development` at your own local
-Postgres/RabbitMQ instances, then:
-
-```bash
-pnpm prisma:generate
-pnpm prisma:migrate:dev
-pnpm dev
-```
+This project is developed and run **exclusively through Docker Compose** -
+there is no supported native/without-Docker path. Postgres, RabbitMQ and the
+API all run as containers; `pnpm install` locally is only so your editor can
+resolve types, not to run the app itself.
 
 ## Quality commands
 
