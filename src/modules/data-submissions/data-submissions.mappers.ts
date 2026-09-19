@@ -310,7 +310,10 @@ type SubmissionWithDetailRelations = SubmissionWithQueueRelations & {
  * separate stored log, mirroring exactly what the mock's own
  * createMockBackendSubmission()/synchronizeSubmissionDecision() build.
  */
-export function toSubmissionDetail(submission: SubmissionWithDetailRelations) {
+export function toSubmissionDetail(
+  submission: SubmissionWithDetailRelations,
+  context: { canDecide: boolean },
+) {
   const createdEntry = {
     id: `${submission.id}-created`,
     status: workflowStatus("pending-review"),
@@ -349,7 +352,9 @@ export function toSubmissionDetail(submission: SubmissionWithDetailRelations) {
     issues: [] as unknown[],
     history: [createdEntry, ...decisionEntries],
     permittedDecisions:
-      submission.status === "PENDING" ? (["approved", "provisional", "returned", "rejected"] as const) : [],
+      submission.status === "PENDING" && context.canDecide
+        ? (["approved", "provisional", "returned", "rejected"] as const)
+        : [],
     extractedValues,
   };
 }

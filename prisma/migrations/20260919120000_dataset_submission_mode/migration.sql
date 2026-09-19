@@ -1,0 +1,3 @@
+CREATE TYPE "DatasetSubmissionMode" AS ENUM ('PER_INSTITUTION', 'NERC_CONSOLIDATED');
+
+ALTER TABLE "datasets" ADD COLUMN "submissionMode" "DatasetSubmissionMode" NOT NULL DEFAULT 'PER_INSTITUTION';

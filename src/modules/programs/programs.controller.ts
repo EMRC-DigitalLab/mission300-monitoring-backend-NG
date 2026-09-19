@@ -3,7 +3,9 @@ import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { ProgramsService } from "@/modules/programs/programs.service";
 import { ProgramsQueryDto } from "@/modules/programs/dto/programs-query.dto";
 import { ProjectsQueryDto } from "@/modules/programs/dto/projects-query.dto";
+import { MilestonesQueryDto } from "@/modules/programs/dto/milestones-query.dto";
 import { CreateProgrammeDto } from "@/modules/programs/dto/create-programme.dto";
+import { CreateMilestoneDto } from "@/modules/programs/dto/create-milestone.dto";
 import { UpsertProjectDto } from "@/modules/programs/dto/upsert-project.dto";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
 
@@ -42,8 +44,14 @@ export class ProgramsController {
   }
 
   @Get("projects/:projectId/milestones")
-  getMilestones(@Param("projectId") projectId: string) {
-    return this.programs.getMilestonesForProject(projectId);
+  getMilestones(@Param("projectId") projectId: string, @Query() query: MilestonesQueryDto) {
+    return this.programs.getMilestonesForProject(projectId, query);
+  }
+
+  @Post("projects/:projectId/milestones")
+  @AuditAction("milestone.created")
+  createMilestone(@Param("projectId") projectId: string, @Body() dto: CreateMilestoneDto) {
+    return this.programs.createMilestone(projectId, dto);
   }
 
   @Post("projects")

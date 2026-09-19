@@ -30,7 +30,10 @@ const DEFAULT_BRANDING = {
   secondaryColor: "#ffca05",
   textColor: "#101828",
   sidebarColor: "#004972",
-  logoUrl: "/Logos/geapp.png",
+  // Empty means "no custom logo uploaded" - the frontend falls back to its
+  // own built-in M300 mark (a light/dark-background-appropriate SVG, not a
+  // single shared image) rather than this settings row asserting one.
+  logoUrl: "",
   fonts: DEFAULT_FONTS as Prisma.InputJsonValue,
   currency: DEFAULT_CURRENCY as Prisma.InputJsonValue,
 };

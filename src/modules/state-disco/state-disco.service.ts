@@ -4,6 +4,8 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import { formatPeriodLabel } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import {
+  formatInt,
+  formatNgnBillions,
   formatPercent,
   periodSortKey,
   ratio,
@@ -282,7 +284,7 @@ export class StateDiscoService {
         id: "metering-rate",
         title: "Metering rate",
         value: formatPercent(meteringRate),
-        supportingLabel: `${current.meteredCustomers.toLocaleString()} of ${current.activeCustomers.toLocaleString()} active customers metered`,
+        supportingLabel: `${formatInt(current.meteredCustomers)} of ${formatInt(current.activeCustomers)} active customers metered`,
         benchmarkLabel: "100% by 2027",
         varianceLabel: `${(meteringRate - 100).toFixed(1)} pts vs 100% target`,
         progressPercent: Math.max(0, Math.min(100, Math.round(meteringRate))),
@@ -325,7 +327,7 @@ export class StateDiscoService {
         id: "collection-efficiency",
         title: "Collection efficiency",
         value: formatPercent(collectionEfficiency),
-        supportingLabel: `${current.revenueCollectedNgn.toLocaleString()} of ${current.revenueBilledNgn.toLocaleString()} NGN billed collected`,
+        supportingLabel: `${formatNgnBillions(current.revenueCollectedNgn)} of ${formatNgnBillions(current.revenueBilledNgn)} billed collected`,
         benchmarkLabel: "100%",
         varianceLabel: `${(collectionEfficiency - 100).toFixed(1)} pts vs 100% target`,
         progressPercent: Math.max(0, Math.min(100, Math.round(collectionEfficiency))),
@@ -346,7 +348,7 @@ export class StateDiscoService {
         value: current.remittanceObligationNgn > 0 ? formatPercent(remittancePerformance) : "Not reported",
         supportingLabel:
           current.remittanceObligationNgn > 0
-            ? `${current.remittanceActualNgn.toLocaleString()} of ${current.remittanceObligationNgn.toLocaleString()} NGN obligation remitted`
+            ? `${formatNgnBillions(current.remittanceActualNgn)} of ${formatNgnBillions(current.remittanceObligationNgn)} obligation remitted`
             : "No remittance obligation reported for this period",
         benchmarkLabel: "100% of applicable obligation",
         varianceLabel: `${(remittancePerformance - 100).toFixed(1)} pts vs 100% compliance`,

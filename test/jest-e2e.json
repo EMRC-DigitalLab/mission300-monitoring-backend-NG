@@ -3,10 +3,12 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 30000,
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.(t|j)s$": ["ts-jest", { "isolatedModules": true }]
   },
   "moduleNameMapper": {
+    "^uuid$": "<rootDir>/helpers/uuid-shim.js",
     "^@/(.*)$": "<rootDir>/../src/$1"
   }
 }

@@ -10,6 +10,7 @@ import type { SetKpiActiveDto } from "@/modules/kpi-explorer/dto/set-kpi-active.
 import type { SetKpiCurrentValueDto } from "@/modules/kpi-explorer/dto/set-kpi-current-value.dto";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -322,7 +323,7 @@ export class KpiExplorerService {
           submittedById: user.id,
           method: "MANUAL_ENTRY",
           status: targetStatus,
-          sourceReference: "Admin override — set directly, outside the submission workflow.",
+          sourceReference: ADMIN_OVERRIDE_SOURCE_REFERENCE,
           notes: dto.note ?? "",
           reviewerId: user.id,
           items: {
@@ -347,6 +348,71 @@ export class KpiExplorerService {
         },
       });
     });
+
+    return this.getProfile(code);
+  }
+
+  /**
+   * Only a KpiValue that came from setCurrentValue()'s own admin-override
+   * path may be corrected or removed here - identified by the exact
+   * sourceReference it stamps, not merely by a null obligationId (the
+   * historical bulk-import scripts also leave obligationId null on their
+   * synthetic submissions; see ADMIN_OVERRIDE_SOURCE_REFERENCE's comment).
+   * A value that arrived through an approved data submission, or through
+   * bulk import, stays governed by its own workflow; this override tool
+   * doesn't get to quietly rewrite or delete either.
+   */
+  private async findEditableHistoryPoint(code: string, valueId: string) {
+    const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
+    if (!kpi) throw new NotFoundException("KPI not found.");
+
+    const value = await this.prisma.kpiValue.findUnique({ where: { id: valueId }, include: VALUE_INCLUDE });
+    if (!value || value.kpiDefinitionId !== kpi.id) throw new NotFoundException("History point not found.");
+    if (value.sourceSubmissionItem.submission.sourceReference !== ADMIN_OVERRIDE_SOURCE_REFERENCE) {
+      throw new BadRequestException(
+        "This value did not come from a direct admin override - correct it through Data Submissions review, not here.",
+      );
+    }
+    return value;
+  }
+
+  async editHistoryPoint(code: string, valueId: string, dto: SetKpiCurrentValueDto) {
+    const value = await this.findEditableHistoryPoint(code, valueId);
+    const targetStatus = dto.resultingStatus === "confirmed" ? "APPROVED" : "PROVISIONALLY_APPROVED";
+    const reviewType = dto.resultingStatus === "confirmed" ? "APPROVE" : "PROVISIONALLY_APPROVE";
+
+    await this.prisma.$transaction([
+      this.prisma.kpiValue.update({
+        where: { id: valueId },
+        data: { period: dto.reportingPeriod, value: dto.value, approvedAt: new Date() },
+      }),
+      this.prisma.submissionItem.update({
+        where: { id: value.sourceSubmissionItemId },
+        data: { period: dto.reportingPeriod, value: dto.value },
+      }),
+      this.prisma.submission.update({
+        where: { id: value.sourceSubmissionItem.submissionId },
+        data: { status: targetStatus, notes: dto.note ?? "" },
+      }),
+      this.prisma.reviewDecision.updateMany({
+        where: { submissionId: value.sourceSubmissionItem.submissionId },
+        data: { decision: reviewType, comment: dto.note ?? "" },
+      }),
+    ]);
+
+    return this.getProfile(code);
+  }
+
+  async deleteHistoryPoint(code: string, valueId: string) {
+    const value = await this.findEditableHistoryPoint(code, valueId);
+    const submissionId = value.sourceSubmissionItem.submissionId;
+
+    await this.prisma.$transaction([
+      this.prisma.kpiValue.delete({ where: { id: valueId } }),
+      this.prisma.reviewDecision.deleteMany({ where: { submissionId } }),
+      this.prisma.submissionItem.deleteMany({ where: { submissionId } }),
+      this.prisma.submission.delete({ where: { id: submissionId } }),
+    ]);
 
     return this.getProfile(code);
   }

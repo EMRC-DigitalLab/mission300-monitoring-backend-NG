@@ -12,7 +12,9 @@ import {
 import { loadBottleneckIdsByLinkedRecord } from "@/modules/bottlenecks/bottlenecks.mappers";
 import type { ProgramsQueryDto } from "@/modules/programs/dto/programs-query.dto";
 import type { ProjectsQueryDto } from "@/modules/programs/dto/projects-query.dto";
+import type { MilestonesQueryDto } from "@/modules/programs/dto/milestones-query.dto";
 import type { CreateProgrammeDto } from "@/modules/programs/dto/create-programme.dto";
+import type { CreateMilestoneDto } from "@/modules/programs/dto/create-milestone.dto";
 import type { UpsertProjectDto } from "@/modules/programs/dto/upsert-project.dto";
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -183,7 +185,7 @@ export class ProgramsService {
     return toProjectRecord(project, bottleneckIds.get(projectId) ?? []);
   }
 
-  async getMilestonesForProject(projectId: string) {
+  async getMilestonesForProject(projectId: string, query: MilestonesQueryDto) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException("The project was not found.");
 
@@ -192,7 +194,29 @@ export class ProgramsService {
       include: MILESTONE_INCLUDE,
       orderBy: { expectedDate: "asc" },
     });
-    return milestones.map(toMilestoneRecord);
+    const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+    return paginate(milestones.map(toMilestoneRecord), query.page ?? 1, pageSize);
+  }
+
+  async createMilestone(projectId: string, dto: CreateMilestoneDto) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException("The project was not found.");
+
+    const milestone = await this.prisma.milestone.create({
+      data: {
+        projectId,
+        name: dto.name,
+        leadInstitution: dto.leadInstitution,
+        expectedDate: new Date(dto.expectedDate),
+        priority: dto.priority,
+        status: dto.status,
+        risk: dto.risk,
+        nextAction: dto.nextAction,
+        bottleneckCategory: dto.bottleneckCategory ?? null,
+      },
+      include: MILESTONE_INCLUDE,
+    });
+    return { record: toMilestoneRecord(milestone), message: "Milestone added." };
   }
 
   async createProgramme(dto: CreateProgrammeDto) {
