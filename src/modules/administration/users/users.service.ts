@@ -99,6 +99,18 @@ export class UsersService {
     return toUserAccountResponse(user);
   }
 
+  async updateInstitution(id: string, institutionName: string) {
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("User account not found.");
+    const institution = await this.resolveInstitution(institutionName);
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { institutionId: institution.id },
+      include: { institution: true },
+    });
+    return toUserAccountResponse(user);
+  }
+
   /**
    * "institution" arrives as free text (matches the real contract - see
    * inviteUserRequestSchema), not an id. The invite form now only ever

@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
@@ -13,11 +14,14 @@ async function bootstrap() {
 
   app.useLogger(app.get(Logger));
   app.use(helmet());
+  // Needed to read the httpOnly refresh-token cookie on POST /auth/refresh.
+  app.use(cookieParser());
 
   const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGIN);
+  const isDevelopment = process.env.NODE_ENV === "development";
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) =>
-      callback(null, isAllowedOrigin(origin, allowedOrigins)),
+      callback(null, isAllowedOrigin(origin, allowedOrigins, isDevelopment)),
     credentials: true,
   });
   app.useGlobalPipes(

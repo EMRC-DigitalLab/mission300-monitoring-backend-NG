@@ -51,13 +51,7 @@ import { PrismaClient } from "@prisma/client";
  * Run with: DATABASE_URL=... node dist/prisma/ingest-rea-project-register.js
  */
 
-const WORKBOOK_PATH = join(
-  process.cwd(),
-  "..",
-  "emrc-geapp",
-  "docs",
-  "EMRC - M300 REA KPI Requirements and Project Register v1-1 2026-09-09.xlsx",
-);
+const WORKBOOK_PATH = join(process.cwd(), "prisma", "data", "rea-kpi-requirements-and-project-register.xlsx");
 const EVIDENCE_ORIGINAL_NAME = "EMRC - M300 REA KPI Requirements and Project Register v1-1 2026-09-09.xlsx";
 
 const PROGRAMME_ID = "rea-eep3-programme";

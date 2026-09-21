@@ -1,5 +1,6 @@
 import { Controller, Get, Param } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { Roles } from "@/common/decorators/roles.decorator";
 import { PillarDashboardService } from "@/modules/pillar-dashboard/pillar-dashboard.service";
 
 // A Compact pillar dashboard (m300-frontend/src/api/schemas/pillar-
@@ -11,6 +12,7 @@ import { PillarDashboardService } from "@/modules/pillar-dashboard/pillar-dashbo
 // against docs/API.md directly).
 @ApiTags("pillar-dashboard")
 @ApiBearerAuth()
+@Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER")
 @Controller("pillars")
 export class PillarDashboardController {
   constructor(private readonly pillarDashboard: PillarDashboardService) {}

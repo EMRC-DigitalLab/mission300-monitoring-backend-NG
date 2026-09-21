@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { KpiExplorerService } from "@/modules/kpi-explorer/kpi-explorer.service";
 import { KpiExplorerQueryDto } from "@/modules/kpi-explorer/dto/kpi-explorer-query.dto";
@@ -74,5 +74,26 @@ export class KpiExplorerController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.kpiExplorer.setCurrentValue(id, dto, user);
+  }
+
+  // Corrects or removes a history point that was itself set through the
+  // admin override above - never one that came from an approved
+  // submission, see KpiExplorerService.findEditableHistoryPoint().
+  @Roles("SYSTEM_ADMINISTRATOR")
+  @Patch("kpis/:id/history/:valueId")
+  @AuditAction("kpi.history_point_edited")
+  editHistoryPoint(
+    @Param("id") id: string,
+    @Param("valueId") valueId: string,
+    @Body() dto: SetKpiCurrentValueDto,
+  ) {
+    return this.kpiExplorer.editHistoryPoint(id, valueId, dto);
+  }
+
+  @Roles("SYSTEM_ADMINISTRATOR")
+  @Delete("kpis/:id/history/:valueId")
+  @AuditAction("kpi.history_point_deleted")
+  deleteHistoryPoint(@Param("id") id: string, @Param("valueId") valueId: string) {
+    return this.kpiExplorer.deleteHistoryPoint(id, valueId);
   }
 }

@@ -1,20 +1,21 @@
-# Local development stack: API (hot-reload, mounted source) + Postgres + RabbitMQ.
-# Usage: docker compose -f docker/docker-compose.yml --env-file ../.env.development up
+# Local development stack: API (hot reload) + Postgres + RabbitMQ.
+# Run from the repository root:
+# docker compose -f docker/docker-compose.yml --env-file .env.development up --watch
 
 services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: m300
-      POSTGRES_PASSWORD: m300
-      POSTGRES_DB: m300
+      POSTGRES_USER: ${POSTGRES_USER:-m300}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-m300}
+      POSTGRES_DB: ${POSTGRES_DB:-m300}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U m300"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,11 +24,11 @@ services:
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: m300
-      RABBITMQ_DEFAULT_PASS: m300
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-m300}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-m300}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -38,21 +39,45 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: deps
+      target: development
     working_dir: /app
-    command: sh -c "pnpm prisma:generate && pnpm prisma:migrate:dev && pnpm dev"
+    command: sh -c "pnpm prisma:generate && pnpm prisma:migrate:deploy && pnpm dev"
     env_file:
       - ../.env.development
+    environment:
+      # Containers reach dependencies by Compose service name and container
+      # port. Host-side localhost/forwarded ports from .env.development are
+      # intentionally overridden for the API container.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-m300}:${POSTGRES_PASSWORD:-m300}@postgres:5432/${POSTGRES_DB:-m300}?schema=public
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-m300}:${RABBITMQ_PASSWORD:-m300}@rabbitmq:5672
+      PORT: 3000
+      # Needed so the CORS allowlist's localhost bypass applies (see
+      # src/config/cors.ts) - .env.development's own CORS_ORIGIN may be set
+      # to a real deployed origin, not localhost:5175.
+      NODE_ENV: development
     ports:
-      - "3000:3000"
+      - "${API_HOST_PORT:-3000}:3000"
     volumes:
-      - ..:/app
       - /app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    develop:
+      watch:
+        - action: sync+restart
+          path: ..
+          target: /app
+          ignore:
+            - node_modules/
+            - dist/
+            - package.json
+            - pnpm-lock.yaml
+        - action: rebuild
+          path: ../package.json
+        - action: rebuild
+          path: ../pnpm-lock.yaml
 
 volumes:
   postgres_data:

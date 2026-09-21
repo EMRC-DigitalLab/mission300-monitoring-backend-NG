@@ -49,13 +49,7 @@ import { PrismaClient } from "@prisma/client";
  * Run with: DATABASE_URL=... node dist/prisma/ingest-niso-remaining-sheets.js
  */
 
-const NISO_WORKBOOK = join(
-  process.cwd(),
-  "..",
-  "emrc-geapp",
-  "docs",
-  "EMRC - NISO Compiled Data 2020-2026 v1 2026-09-11.xlsx",
-);
+const NISO_WORKBOOK = join(process.cwd(), "prisma", "data", "niso-compiled-data-2020-2026.xlsx");
 const SOURCE_REFERENCE_BASE = "EMRC - NISO Compiled Data 2020-2026 v1 2026-09-11.xlsx";
 const NISO_INSTITUTION_ID = "seed-institution-niso-tcn";
 const NISO_INSTITUTION_NAME = "NISO / TCN";

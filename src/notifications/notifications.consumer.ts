@@ -13,6 +13,7 @@ import {
 } from "@/notifications/email/templates";
 import { BrandingService } from "@/modules/administration/branding/branding.service";
 import { REPORT_TYPE_LABELS } from "@/modules/reports/reports.mappers";
+import { NotificationsFeedService } from "@/notifications/feed/notifications-feed.service";
 
 /**
  * Single subscriber for every notification-worthy domain event, fanning
@@ -31,6 +32,7 @@ export class NotificationsConsumer implements OnModuleInit {
     private readonly webhooks: WebhooksService,
     private readonly auth: AuthService,
     private readonly branding: BrandingService,
+    private readonly feed: NotificationsFeedService,
   ) {}
 
   /** Whatever an admin has currently saved in Administration > Customization. */
@@ -89,6 +91,12 @@ export class NotificationsConsumer implements OnModuleInit {
       await this.getEmailBrand(),
     );
     await this.email.send({ to: submission.submittedBy.email, subject, html });
+    await this.feed.create(
+      submission.submittedBy.id,
+      `Submission ${latestDecision.decision.toLowerCase()}`,
+      `Your ${submission.institution.name} submission was ${latestDecision.decision.toLowerCase()}.`,
+      "/data-submissions/submissions",
+    );
   }
 
   /**
@@ -126,6 +134,12 @@ export class NotificationsConsumer implements OnModuleInit {
       subject: received.subject,
       html: received.html,
     });
+    await this.feed.create(
+      submission.submittedBy.id,
+      "Submission received",
+      `${submission.obligation.dataset.name} (${submission.obligation.reportingPeriod}) was submitted for review.`,
+      "/data-submissions/submissions",
+    );
 
     const reviewers = await this.prisma.user.findMany({
       where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
@@ -144,6 +158,12 @@ export class NotificationsConsumer implements OnModuleInit {
       reviewers.map((reviewer) =>
         this.email.send({ to: reviewer.email, subject: awaitingReview.subject, html: awaitingReview.html }),
       ),
+    );
+    await this.feed.createMany(
+      reviewers.map((reviewer) => reviewer.id),
+      "Submission awaiting review",
+      `${submission.institution.name} submitted ${submission.obligation.dataset.name} (${submission.obligation.reportingPeriod}).`,
+      `/data-submissions/validation/${submission.id}`,
     );
   }
 
@@ -167,5 +187,11 @@ export class NotificationsConsumer implements OnModuleInit {
       await this.getEmailBrand(),
     );
     await this.email.send({ to: report.requestedBy.email, subject, html });
+    await this.feed.create(
+      report.requestedBy.id,
+      "Report ready",
+      `${REPORT_TYPE_LABELS[report.reportType]} is ready to download.`,
+      "/reports",
+    );
   }
 }

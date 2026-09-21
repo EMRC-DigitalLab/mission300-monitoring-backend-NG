@@ -4,6 +4,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import ExcelJS from "exceljs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import {
+  DISCO_NAMES as DISCO_FULL_NAMES,
+  discoInstitutionId,
+  resolveDiscoName,
+  MONTH_TO_QUARTER,
+} from "./lib/disco-institutions";
 
 /**
  * One-off historical backfill of DisCo performance data (2020-2026) from
@@ -22,78 +28,6 @@ import { PrismaClient } from "@prisma/client";
  */
 
 const WORKBOOK_PATH = join(process.cwd(), "prisma", "data", "nerc-disco-data-2020-2026.xlsx");
-
-// Matches seed.ts's DISCOS id scheme exactly (`seed-disco-${slug}`) so this
-// script and seed.ts converge on the same institution rows regardless of
-// which runs first or whether both run against the same database.
-const DISCO_FULL_NAMES = [
-  "Abuja Electricity Distribution Company",
-  "Benin Electricity Distribution Company",
-  "Eko Electricity Distribution Company",
-  "Enugu Electricity Distribution Company",
-  "Ibadan Electricity Distribution Company",
-  "Ikeja Electric",
-  "Jos Electricity Distribution Company",
-  "Kaduna Electricity Distribution Company",
-  "Kano Electricity Distribution Company",
-  "Port Harcourt Electricity Distribution Company",
-  "Yola Electricity Distribution Company",
-  // Not one of the 11 standard privatization-era DisCos - a separate,
-  // newer independent distribution franchise for Aba and its metro area
-  // (Abia State), confirmed with the user before adding.
-  "Aba Power Limited",
-];
-
-function discoInstitutionId(fullName: string): string {
-  return `seed-disco-${fullName.toLowerCase().replace(/[^a-z]+/g, "-")}`;
-}
-
-// Excel short name -> canonical full institution name. PH/Port Harcourt/
-// Portharcourt are 3 spellings for the same DisCo found in the raw sheets -
-// a real data-quality issue in the source file, not a modelling choice.
-const DISCO_NAME_MAP: Record<string, string> = {
-  Aba: "Aba Power Limited",
-  Abuja: "Abuja Electricity Distribution Company",
-  Benin: "Benin Electricity Distribution Company",
-  Eko: "Eko Electricity Distribution Company",
-  Enugu: "Enugu Electricity Distribution Company",
-  Ibadan: "Ibadan Electricity Distribution Company",
-  Ikeja: "Ikeja Electric",
-  Jos: "Jos Electricity Distribution Company",
-  Kaduna: "Kaduna Electricity Distribution Company",
-  Kano: "Kano Electricity Distribution Company",
-  PH: "Port Harcourt Electricity Distribution Company",
-  "Port Harcourt": "Port Harcourt Electricity Distribution Company",
-  Portharcourt: "Port Harcourt Electricity Distribution Company",
-  Yola: "Yola Electricity Distribution Company",
-};
-
-// Case-insensitive lookup - the workbook has inconsistent casing for the
-// same DisCo across sheets (e.g. "Portharcourt" in some, "portharcourt" in
-// others), on top of the outright different spellings DISCO_NAME_MAP above
-// already normalizes.
-const DISCO_NAME_MAP_LOWER = new Map(
-  Object.entries(DISCO_NAME_MAP).map(([raw, canonical]) => [raw.toLowerCase(), canonical]),
-);
-
-function resolveDiscoName(raw: string): string | undefined {
-  return DISCO_NAME_MAP_LOWER.get(raw.trim().toLowerCase());
-}
-
-const MONTH_TO_QUARTER: Record<string, number> = {
-  January: 1,
-  February: 1,
-  March: 1,
-  April: 2,
-  May: 2,
-  June: 2,
-  July: 3,
-  August: 3,
-  September: 3,
-  October: 4,
-  November: 4,
-  December: 4,
-};
 
 function periodOf(year: number, monthName: string): string {
   const quarter = MONTH_TO_QUARTER[monthName];

@@ -136,6 +136,19 @@ jobs:
               status=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
               if [ "$status" = "200" ]; then
                 echo "Healthy (attempt $attempt/30, HTTP $status)"
+
+                # Load the reference data (KPI directory, NERC/NISO/REA
+                # history, datasets/obligations, project registers). Runs
+                # inside the live api container - same database, same
+                # evidence-file volume - and only after the health check,
+                # because the bootstrap admin the ingests attribute their
+                # evidence files to is created at api startup. Load-once: it
+                # skips when KPI values already exist, so later deploys never
+                # overwrite edits made in the app. Staging only; production
+                # is loaded deliberately, not on deploy.
+                docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+                  --env-file staging/.env exec -T api node prisma/seed-reference-data.mjs \
+                  || { echo "Reference data load failed"; exit 1; }
                 exit 0
               fi
               echo "Not ready yet (attempt $attempt/30, HTTP $status). Retrying in 5s..."

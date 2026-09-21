@@ -22,11 +22,19 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "check": "pnpm verify && pnpm build",
+    "docker:dev": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch",
+    "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch --detach",
+    "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env.development down",
+    "docker:logs": "docker compose -f docker/docker-compose.yml --env-file .env.development logs --follow api",
+    "docker:ps": "docker compose -f docker/docker-compose.yml --env-file .env.development ps",
+    "docker:build": "docker build -f docker/Dockerfile -t m300-backend:local .",
+    "docker:config": "docker compose -f docker/docker-compose.yml --env-file .env.development config --quiet",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:reference": "node prisma/seed-reference-data.mjs",
     "prepare": "husky || true"
   },
   "dependencies": {
@@ -46,6 +54,7 @@
     "argon2": "^0.45.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
     "exceljs": "^4.4.0",
     "helmet": "^8.3.0",
     "nestjs-pino": "^5.1.0",
@@ -65,6 +74,7 @@
     "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.2.3",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.13",
     "@types/multer": "^2.2.0",
@@ -97,7 +107,10 @@
       "prisma"
     ],
     "overrides": {
-      "multer": ">=2.3.0"
+      "multer": ">=2.3.0",
+      "uuid@<11.1.1": ">=11.1.1",
+      "deepmerge-ts@<8.0.0": ">=8.0.0",
+      "mysql2@<=3.23.0": ">=3.23.1"
     }
   },
   "jest": {
@@ -117,6 +130,7 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "moduleNameMapper": {
+      "^uuid$": "<rootDir>/../test/helpers/uuid-shim.js",
       "^@/(.*)$": "<rootDir>/$1"
     }
   }

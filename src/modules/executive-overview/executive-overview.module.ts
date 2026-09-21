@@ -5,5 +5,6 @@ import { ExecutiveOverviewService } from "@/modules/executive-overview/executive
 @Module({
   controllers: [ExecutiveOverviewController],
   providers: [ExecutiveOverviewService],
+  exports: [ExecutiveOverviewService],
 })
 export class ExecutiveOverviewModule {}

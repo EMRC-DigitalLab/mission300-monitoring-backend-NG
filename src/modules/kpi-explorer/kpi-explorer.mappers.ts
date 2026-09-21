@@ -7,6 +7,7 @@ import type {
   SubmissionItem,
 } from "@prisma/client";
 import { toKebabCase } from "@/common/utils/enum-casing";
+import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
 
 type ValueWithProvenance = KpiValue & { sourceSubmissionItem: SubmissionItem & { submission: Submission } };
 
@@ -125,10 +126,17 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
   const baseline = toNumber(kpi.baseline);
 
   const history = sorted.slice(-HISTORY_WINDOW).map((v) => ({
+    id: v.id,
     period: formatPeriodLabel(v.period),
     value: toNumber(v.value) ?? 0,
     validationStatus: deriveValidationStatus(v.sourceSubmissionItem.submission.status),
     submissionId: v.sourceSubmissionItem.submissionId,
+    // Only ever true for a value set via the setCurrentValue() admin
+    // override - identified by its exact sourceReference stamp, not a null
+    // obligationId, since the historical bulk-import scripts also leave
+    // obligationId null on their own synthetic submissions (see
+    // ADMIN_OVERRIDE_SOURCE_REFERENCE's comment in kpi-explorer.service.ts).
+    editable: v.sourceSubmissionItem.submission.sourceReference === ADMIN_OVERRIDE_SOURCE_REFERENCE,
   }));
 
   const direction = toKebabCase(kpi.direction) as "higher-is-better" | "lower-is-better";
