@@ -77,6 +77,13 @@ jobs:
       - name: Prisma migrate (test DB)
         run: pnpm prisma:migrate:deploy
 
+      - name: Seed test DB
+        # test/*.e2e-spec.ts log in as the seeded admin/provider/reviewer
+        # accounts and rely on the seed institutions - migrate alone leaves
+        # an empty database, so every login 401s. Passed locally only because
+        # the dev DB had already been seeded.
+        run: pnpm prisma:seed
+
       - name: Unit tests
         run: pnpm test
 
