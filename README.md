@@ -243,3 +243,9 @@ before pushing.
 git-ignored. `NODE_ENV` selects which file `ConfigModule` loads. The same
 variable names are re-declared as GitHub Actions secrets for CD (see
 `.env.github.example`) and injected into the container at deploy time.
+
+## Reference data
+
+`pnpm prisma:seed` only creates demo accounts and sample records. The real Mission 300 reference data - the KPI directory, historical NERC/NISO/REA values, datasets and obligations, and the REA/NISO project registers - is loaded by `pnpm prisma:seed:reference`, which runs the compiled `ingest-*` scripts in dependency order (run `pnpm build` first). Every script is idempotent, so re-running is safe. The source workbooks live in `prisma/data/`.
+
+The staging deploy runs this automatically after the health check (see `.github/workflows/deploy.yml`); production is not seeded on deploy.

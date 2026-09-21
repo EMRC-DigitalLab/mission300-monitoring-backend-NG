@@ -34,6 +34,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:reference": "node prisma/seed-reference-data.mjs",
     "prepare": "husky || true"
   },
   "dependencies": {
