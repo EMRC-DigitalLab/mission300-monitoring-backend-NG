@@ -246,6 +246,6 @@ variable names are re-declared as GitHub Actions secrets for CD (see
 
 ## Reference data
 
-`pnpm prisma:seed` only creates demo accounts and sample records. The real Mission 300 reference data - the KPI directory, historical NERC/NISO/REA values, datasets and obligations, and the REA/NISO project registers - is loaded by `pnpm prisma:seed:reference`, which runs the compiled `ingest-*` scripts in dependency order (run `pnpm build` first). Every script is idempotent, so re-running is safe. The source workbooks live in `prisma/data/`.
+`pnpm prisma:seed` only creates demo accounts and sample records. The real Mission 300 reference data - the KPI directory, historical NERC/NISO/REA values, datasets and obligations, and the REA/NISO project registers - is loaded by `pnpm prisma:seed:reference`, which runs the compiled `ingest-*` scripts in dependency order (run `pnpm build` first). It is load-once: it skips when the database already has KPI values, because the scripts write from the source files and would otherwise overwrite edits made in the app. Use `pnpm prisma:seed:reference -- --force` to reload deliberately. The source workbooks live in `prisma/data/`.
 
-The staging deploy runs this automatically after the health check (see `.github/workflows/deploy.yml`); production is not seeded on deploy.
+The staging deploy runs it after the health check (see `.github/workflows/deploy.yml`), so it loads the data the first time and does nothing afterwards; production is not seeded on deploy.
