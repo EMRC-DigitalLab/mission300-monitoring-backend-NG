@@ -1,0 +1,86 @@
+name: Database Backup
+
+# Daily Postgres dump for both real deployed environments (never local
+# dev - that database is ephemeral test data, torn down and re-seeded
+# every test cycle, so there is nothing there worth backing up).
+#
+# Two copies of every dump: one written to /opt/m300-backend/backups/<env>
+# on the VPS itself (fast to restore from without needing this workflow
+# at all; /opt/backups/ is root-owned by another project's own backup job
+# on this shared box, m300_user has no access there), and one pulled off
+# the VPS entirely as a GitHub Actions artifact - the second copy is the
+# point of running this here rather than as a plain VPS cron job: a
+# VPS-level disaster (disk failure, the box itself being lost) would take
+# an on-box-only backup down with it.
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC daily
+  workflow_dispatch: {}
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Backup ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, production]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Copy the backup script to the VPS
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          source: "scripts/db-backup.sh"
+          target: "/opt/m300-backend"
+          strip_components: 1
+
+      - name: Run the backup on the VPS
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            chmod +x /opt/m300-backend/scripts/db-backup.sh
+            /opt/m300-backend/scripts/db-backup.sh ${{ matrix.environment }}
+
+      # appleboy/scp-action only uploads (its `source` is explicitly local
+      # files) - it can't pull the dump back down, so this step talks to
+      # the VPS directly with plain scp instead, using the same key the
+      # steps above already authenticate with. Downloads the fixed
+      # `latest.sql.gz` db-backup.sh always writes alongside the
+      # timestamped file, since there is no way to hand this step a
+      # dynamic filename from a script that ran on the VPS, not here.
+      - name: Pull the fresh dump off the VPS
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p backup-download
+          install -m 600 /dev/null deploy_key
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > deploy_key
+          scp -i deploy_key -P "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=accept-new \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/opt/m300-backend/backups/${{ matrix.environment }}/latest.sql.gz" \
+            "backup-download/m300-${{ matrix.environment }}-$(date +%Y-%m-%d).sql.gz"
+          rm -f deploy_key
+
+      - name: Upload as a workflow artifact (the off-VPS copy)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: db-backup-${{ matrix.environment }}-${{ github.run_id }}
+          path: backup-download/*.sql.gz
+          retention-days: 30
