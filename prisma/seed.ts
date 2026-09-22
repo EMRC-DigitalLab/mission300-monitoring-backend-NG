@@ -1,75 +1,9 @@
-import { PrismaClient, RoleName, AccountStatus, Permission } from "@prisma/client";
+import { PrismaClient, RoleName, AccountStatus } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as argon2 from "argon2";
+import { ROLE_DEFINITIONS } from "../src/modules/auth/role-definitions";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL as string) });
-
-// Display metadata + module-reachability for the 7 fixed roles - see the
-// RoleDefinition model comment in schema.prisma for why this is seeded
-// data, not an admin-editable table. label/permissions/modules match the
-// real frontend's role table exactly (m300-frontend/src/mocks/data/
-// administration.ts's administrationOverview.roles) - modules in
-// particular MUST be the human-readable labels roleReachesModule() in
-// overview.mappers.ts compares against ("Data Submissions & Validation"),
-// not lowercase-hyphen codes, or module-based filtering silently never
-// matches.
-const ROLE_DEFINITIONS: {
-  role: RoleName;
-  label: string;
-  description: string;
-  permissions: Permission[];
-  modules: string[];
-}[] = [
-  {
-    role: RoleName.SYSTEM_ADMINISTRATOR,
-    label: "System Administrator",
-    description: "Full platform access, including user management and site configuration.",
-    permissions: Object.values(Permission),
-    modules: ["All modules"],
-  },
-  {
-    role: RoleName.INSTITUTIONAL_DATA_PROVIDER,
-    label: "Institutional Data Provider",
-    description: "Submits data on behalf of their institution and tracks programme delivery.",
-    permissions: [Permission.VIEW, Permission.SUBMIT, Permission.EDIT, Permission.EXPORT],
-    modules: ["Data Submissions & Validation", "Implementation Register"],
-  },
-  {
-    role: RoleName.DATA_REVIEWER,
-    label: "Data Reviewer",
-    description: "Reviews submitted data for structural and business-rule validity.",
-    permissions: [Permission.VIEW, Permission.EDIT, Permission.EXPORT],
-    modules: ["Data Submissions & Validation", "KPI Explorer"],
-  },
-  {
-    role: RoleName.VALIDATOR,
-    label: "Validator",
-    description: "Validates and approves or rejects submitted data.",
-    permissions: [Permission.VIEW, Permission.VALIDATE, Permission.EXPORT],
-    modules: ["Data Submissions & Validation", "KPI Explorer"],
-  },
-  {
-    role: RoleName.DASHBOARD_MANAGER,
-    label: "Dashboard Manager",
-    description: "Manages programme delivery and monitors performance dashboards.",
-    permissions: [Permission.VIEW, Permission.EDIT, Permission.APPROVE, Permission.EXPORT],
-    modules: ["All monitoring modules", "Reports & Exports"],
-  },
-  {
-    role: RoleName.OVERSIGHT_USER,
-    label: "Oversight User",
-    description: "Monitors national progress and exports reports for oversight purposes.",
-    permissions: [Permission.VIEW, Permission.EXPORT],
-    modules: ["Executive Overview", "Compact pillar dashboards", "Reports & Exports"],
-  },
-  {
-    role: RoleName.READ_ONLY_USER,
-    label: "Read-Only User",
-    description: "Views the national executive overview only.",
-    permissions: [Permission.VIEW],
-    modules: ["Executive Overview"],
-  },
-];
 
 async function main() {
   for (const definition of ROLE_DEFINITIONS) {
@@ -559,10 +493,20 @@ async function main() {
         ],
       },
       documents: {
-        create: [{ label: "Q3 2025 progress report", url: "https://files.example.gov.ng/tcn/north-east-line-upgrade-q3.pdf" }],
+        create: [
+          {
+            label: "Q3 2025 progress report",
+            url: "https://files.example.gov.ng/tcn/north-east-line-upgrade-q3.pdf",
+          },
+        ],
       },
       updates: {
-        create: [{ date: new Date("2025-09-01T00:00:00Z"), note: "Contractor mobilised to site; tower foundation works underway." }],
+        create: [
+          {
+            date: new Date("2025-09-01T00:00:00Z"),
+            note: "Contractor mobilised to site; tower foundation works underway.",
+          },
+        ],
       },
     },
     update: {},
@@ -796,7 +740,12 @@ async function main() {
       escalationStatus: "NOT_ESCALATED",
       status: "BLOCKED",
       lifecycleStage: "PROCUREMENT",
-      statusHistory: { create: [{ period: "Sep 2025", status: "OPEN" }, { period: "Oct 2025", status: "BLOCKED" }] },
+      statusHistory: {
+        create: [
+          { period: "Sep 2025", status: "OPEN" },
+          { period: "Oct 2025", status: "BLOCKED" },
+        ],
+      },
     },
     update: {},
   });
