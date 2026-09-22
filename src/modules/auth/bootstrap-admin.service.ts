@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { AccountStatus, RoleName } from "@prisma/client";
 import * as argon2 from "argon2";
 import { PrismaService } from "@/prisma/prisma.service";
+import { ROLE_DEFINITIONS } from "./role-definitions";
 
 /**
  * Solves the invite-only chicken-and-egg problem: the invite endpoint
@@ -20,6 +21,14 @@ export class BootstrapAdminService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    for (const definition of ROLE_DEFINITIONS) {
+      await this.prisma.roleDefinition.upsert({
+        where: { role: definition.role },
+        create: definition,
+        update: definition,
+      });
+    }
+
     const userCount = await this.prisma.user.count();
     if (userCount > 0) return;
 
