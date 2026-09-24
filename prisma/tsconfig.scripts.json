@@ -16,6 +16,7 @@
     "ingest-rea-project-register.ts",
     "ingest-access-delivery-kpis.ts",
     "ingest-niso-project-register.ts",
+    "ingest-fgn-powerco-project-register.ts",
     "ingest-niso-generation-kpis.ts",
     "ingest-derived-utility-kpis.ts",
     "ingest-niso-bilateral-kpi.ts",

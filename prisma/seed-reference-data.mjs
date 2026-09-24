@@ -33,9 +33,20 @@ const ORDER = [
   "ingest-rea-niso-datasets-obligations",
   "ingest-rea-project-register",
   "ingest-niso-project-register",
+  "ingest-fgn-powerco-project-register",
 ];
 
 const force = process.argv.includes("--force");
+const onlyArg = process.argv.find((arg) => arg.startsWith("--only="));
+const only = onlyArg ? onlyArg.slice("--only=".length) : null;
+if (only) {
+  if (!ORDER.includes(only)) {
+    console.error(`Unknown ingest script "${only}". Choose one of: ${ORDER.join(", ")}`);
+    process.exit(1);
+  }
+  const result = spawnSync(process.execPath, [`dist/prisma/${only}.js`], { stdio: "inherit" });
+  process.exit(result.status ?? 1);
+}
 if (!force) {
   const prisma = new prismaPkg.PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL) });
   const kpiValues = await prisma.kpiValue.count();
