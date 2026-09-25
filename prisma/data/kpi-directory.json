@@ -186,14 +186,14 @@
     "aggregation": "National",
     "frequency": "Annual",
     "disaggregation": "By renewable source (hydro, solar, wind)",
-    "limitations": "Current figure counts hydro only — solar and wind generation-mix data is not yet consistently reported, so the true renewable share may differ materially once included. Renamed from \"Renewable Energy Share in Generation Mix\" to stay distinct from M300-P1-015 (installed capacity share), a different quantity per SE4ALL MRL guidance.",
-    "sourceInstitution": "NISO / TCN / NERC",
+    "limitations": "Baseline and targets reconciled against the Cycle 1 2026 Compact Progress Report (\"Nigeria Targets\", 06/09/26): its 26% baseline and 26.1% 2025/2026 actuals run above this KPI's earlier 22% hydro-only baseline, i.e. include renewable generation beyond hydro that this platform's own NERC/NISO source does not yet break out by source — solar and wind generation-mix data is not yet consistently reported here, so the true renewable share may differ materially once included. Renamed from \"Renewable Energy Share in Generation Mix\" to stay distinct from M300-P1-015 (installed capacity share), a different quantity per SE4ALL MRL guidance.",
+    "sourceInstitution": "NISO / TCN / NERC; Cycle 1 2026 Compact Progress Report (CDMU)",
     "sourceDataset": "Generation availability",
-    "sourceReference": "NERC Q3 2025 Report; IRENA Renewable Capacity Statistics 2025",
+    "sourceReference": "NERC Q3 2025 Report; IRENA Renewable Capacity Statistics 2025; 0. Nigeria_Cycle 1 2026_Mission 300_Compact Progress Report_Worksheet_06_09_26.xlsx, \"Nigeria Targets\" sheet",
     "version": "v1.0",
     "direction": "HIGHER_IS_BETTER",
-    "baseline": 22,
-    "baselineLabel": "22% hydro share (Compact baseline)",
+    "baseline": 26,
+    "baselineLabel": "26% (Cycle 1 2026 Compact Progress Report baseline)",
     "target": 75,
     "targetLabel": "75% renewable energy share by 2030 (Nigeria National Energy Compact commitment, per GEAPP Reporting Nigeria Targets)",
     "targetDate": "2030",
@@ -215,19 +215,34 @@
     },
     "targetPoints": [
       {
+        "period": "2025",
+        "value": 29,
+        "label": "29% by 2025 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
         "period": "2026",
-        "value": 45,
-        "label": "45% by 2026 (interim checkpoint)"
+        "value": 29.83,
+        "label": "29.83% by 2026 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2027",
+        "value": 30.67,
+        "label": "30.67% by 2027 (Cycle 1 2026 Compact Progress Report)"
       },
       {
         "period": "2028",
-        "value": 60,
-        "label": "60% by 2028 (interim checkpoint)"
+        "value": 31.5,
+        "label": "31.5% by 2028 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2029",
+        "value": 33,
+        "label": "33% by 2029 (Cycle 1 2026 Compact Progress Report)"
       },
       {
         "period": "2030",
-        "value": 75,
-        "label": "75% by 2030 (final Compact commitment)"
+        "value": 34,
+        "label": "34% by 2030 (Cycle 1 2026 Compact Progress Report interim checkpoint — the 75% target above is the Compact's separate end-value commitment, beyond this report's 2030 column)"
       }
     ]
   },
@@ -737,16 +752,16 @@
     "aggregation": "National",
     "frequency": "Quarterly",
     "disaggregation": "By financing instrument where available",
-    "limitations": "No formal Compact tracking baseline exists yet; broader sector investment figures require validation before inclusion. Figures below are an illustrative early-pipeline trajectory, not institutionally confirmed data.",
+    "limitations": "No formal Compact tracking baseline exists yet; broader sector investment figures require validation before inclusion. No actual figure has been reported for any year yet (the Cycle 1 2026 Compact Progress Report's \"Actual private capital mobilized\" row is blank throughout) — the values below are the reconciled year-on-year target only.",
     "sourceInstitution": "FMoP / REA / FMoF",
     "sourceDataset": "Private capital mobilized",
-    "sourceReference": "Nigeria National Energy Compact funding table",
+    "sourceReference": "0. Nigeria_Cycle 1 2026_Mission 300_Compact Progress Report_Worksheet_06_09_26.xlsx, \"Nigeria Targets\" sheet",
     "version": "v1.0",
     "direction": "HIGHER_IS_BETTER",
     "baseline": 0,
     "baselineLabel": "USD 0 at formal Compact tracking start (Jan 2025)",
-    "target": 15500,
-    "targetLabel": "USD 15.5 billion by 2030 (Nigeria National Energy Compact commitment)",
+    "target": 15499.8,
+    "targetLabel": "USD 15,499.8 million by 2030 (Nigeria National Energy Compact commitment, per Cycle 1 2026 Compact Progress Report end value)",
     "targetDate": "2030",
     "targetBasis": "LEVEL",
     "targetBasisLabel": null,
@@ -764,7 +779,33 @@
         "Remains the reported dashboard figure until the ledger reaches national submission scale"
       ]
     },
-    "targetPoints": []
+    "targetPoints": [
+      {
+        "period": "2025",
+        "value": 2583.3,
+        "label": "USD 2,583.3 million by 2025 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2026",
+        "value": 2583.3,
+        "label": "USD 2,583.3 million by 2026 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2027",
+        "value": 2583.3,
+        "label": "USD 2,583.3 million by 2027 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2028",
+        "value": 2583.3,
+        "label": "USD 2,583.3 million by 2028 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2029",
+        "value": 2583.3,
+        "label": "USD 2,583.3 million by 2029 (Cycle 1 2026 Compact Progress Report)"
+      }
+    ]
   },
   {
     "code": "M300-P4-001",
@@ -866,21 +907,52 @@
     "aggregation": "National",
     "frequency": "Annual",
     "disaggregation": "Urban/rural where available",
-    "limitations": "National survey coverage is annual, so intra-year change cannot be observed. Prior-year comparison is an illustrative estimate, not institutionally confirmed data. The Compact’s 25% per annum growth commitment is a growth rate, not a % access-rate level, so its application to this series is pending confirmation — no level target is asserted above.",
-    "sourceInstitution": "National reports",
+    "limitations": "Baseline and target reconciled against the Cycle 1 2026 Compact Progress Report (\"Nigeria Targets\", 06/09/26), which supersedes the earlier illustrative, not institutionally confirmed baseline. National survey coverage is annual, so intra-year change cannot be observed.",
+    "sourceInstitution": "CDMU (Cycle 1 2026 Compact Progress Report)",
     "sourceDataset": "Clean cooking access survey",
-    "sourceReference": "Nigeria National Energy Compact",
+    "sourceReference": "0. Nigeria_Cycle 1 2026_Mission 300_Compact Progress Report_Worksheet_06_09_26.xlsx, \"Nigeria Targets\" sheet",
     "version": "v1.0",
     "direction": "HIGHER_IS_BETTER",
-    "baseline": 23.5,
-    "baselineLabel": "Illustrative estimate — not institutionally confirmed (2023)",
-    "target": null,
-    "targetLabel": "No approved level target — 25%/yr growth commitment",
-    "targetDate": null,
-    "targetBasis": "GROWTH_RATE",
-    "targetBasisLabel": "25%/yr growth commitment",
+    "baseline": 25.6,
+    "baselineLabel": "25.6% (Cycle 1 2026 Compact Progress Report baseline)",
+    "target": 100,
+    "targetLabel": "100% clean cooking access by 2030 (Nigeria National Energy Compact commitment, per Cycle 1 2026 Compact Progress Report)",
+    "targetDate": "2030",
+    "targetBasis": "LEVEL",
+    "targetBasisLabel": null,
     "externalStandardAlignment": null,
-    "targetPoints": []
+    "targetPoints": [
+      {
+        "period": "2025",
+        "value": 41,
+        "label": "41% by 2025 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2026",
+        "value": 52,
+        "label": "52% by 2026 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2027",
+        "value": 68,
+        "label": "68% by 2027 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2028",
+        "value": 86.5,
+        "label": "86.5% by 2028 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2029",
+        "value": 100,
+        "label": "100% by 2029 (Cycle 1 2026 Compact Progress Report)"
+      },
+      {
+        "period": "2030",
+        "value": 100,
+        "label": "100% by 2030 (Cycle 1 2026 Compact Progress Report)"
+      }
+    ]
   },
   {
     "code": "M300-P2-011",
