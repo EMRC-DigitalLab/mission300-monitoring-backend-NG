@@ -35,6 +35,7 @@ const ORDER = [
   "ingest-niso-project-register",
   "ingest-fgn-powerco-project-register",
   "ingest-fgn-compact-progress-kpi-values",
+  "ingest-fgn-compact-progress-electricity-access",
 ];
 
 const force = process.argv.includes("--force");

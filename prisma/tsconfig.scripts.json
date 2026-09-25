@@ -18,6 +18,7 @@
     "ingest-niso-project-register.ts",
     "ingest-fgn-powerco-project-register.ts",
     "ingest-fgn-compact-progress-kpi-values.ts",
+    "ingest-fgn-compact-progress-electricity-access.ts",
     "ingest-niso-generation-kpis.ts",
     "ingest-derived-utility-kpis.ts",
     "ingest-niso-bilateral-kpi.ts",
