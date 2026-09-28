@@ -29,6 +29,39 @@ default. Seed sample data once the stack is up:
 pnpm prisma:seed
 ```
 
+### Optional Kestra workflow engine
+
+Start Kestra alongside the API and RabbitMQ when you want to automate backend
+events:
+
+```bash
+pnpm docker:kestra
+```
+
+Kestra is available at `http://localhost:8081`; create its admin login on the
+first visit. It uses its own Postgres database and a dedicated RabbitMQ queue,
+so Kestra executions do not consume messages from the API's worker queues.
+
+To connect the included flows:
+
+1. Set `SECRET_AMQP_USERNAME` and `SECRET_AMQP_PASSWORD` in
+   `.env.development` to the base64-encoded local RabbitMQ username and
+   password. The defaults in `.env.example` match the local `m300`/`m300`
+   broker defaults. Kestra Open Source resolves `secret()` from these
+   environment variables; it does not have the Enterprise namespace Secrets
+   UI.
+2. Import `kestra/flows/m300-setup-event-queue.yaml` and
+   `kestra/flows/m300-domain-events.yaml` in the Kestra UI.
+3. Run `m300_setup_event_queue` once. Then enable the `rabbitmq_events`
+   trigger on `m300_domain_events`.
+
+The event flow logs each domain event payload as a starting point for adding
+Kestra tasks. The example binds routing key `#`, so it receives every event on
+`m300.events`. Restrict the binding to a key such as `submission.*` if the
+flow should process only that event family. The Compose profile and its local
+default database password are for development only; use dedicated credentials
+and a secured deployment for shared or production Kestra instances.
+
 Log in with the seeded accounts (password `ChangeMe123!` for all):
 `admin@m300.local` (system administrator), `provider@m300.local`
 (institutional data provider), `reviewer@m300.local` (data reviewer).

@@ -79,5 +79,66 @@ services:
         - action: rebuild
           path: ../pnpm-lock.yaml
 
+  # Optional local workflow orchestration. Start with `--profile kestra`.
+  # Kestra uses a separate database and consumes a dedicated queue bound to
+  # the backend's existing topic exchange; it does not alter API delivery.
+  kestra-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    profiles: ["kestra"]
+    environment:
+      POSTGRES_USER: ${KESTRA_DB_USER:-kestra}
+      POSTGRES_PASSWORD: ${KESTRA_DB_PASSWORD:-kestra-local-only}
+      POSTGRES_DB: ${KESTRA_DB_NAME:-kestra}
+    volumes:
+      - kestra_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:latest-slim
+    restart: unless-stopped
+    profiles: ["kestra"]
+    user: "root"
+    command: server standalone --worker-thread=4
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://kestra-postgres:5432/${KESTRA_DB_NAME:-kestra}
+            driver-class-name: org.postgresql.Driver
+            username: ${KESTRA_DB_USER:-kestra}
+            password: ${KESTRA_DB_PASSWORD:-kestra-local-only}
+        kestra:
+          repository:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: "/app/storage"
+          queue:
+            type: postgres
+          url: http://localhost:8080/
+          server:
+            basicAuth:
+              enabled: true
+              username: "${KESTRA_ADMIN_USERNAME:-admin@kestra.io}"
+              password: "${KESTRA_ADMIN_PASSWORD:-kestra}"
+      SECRET_AMQP_USERNAME: ${SECRET_AMQP_USERNAME:-bTMwMA==}
+      SECRET_AMQP_PASSWORD: ${SECRET_AMQP_PASSWORD:-bTMwMA==}
+      KESTRA_PLUGINS_AUTO_INSTALL_ENABLED: "true"
+    ports:
+      - "${KESTRA_HOST_PORT:-8081}:8080"
+    volumes:
+      - kestra_data:/app/storage
+    depends_on:
+      kestra-postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  kestra_postgres_data:
+  kestra_data:

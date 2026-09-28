@@ -1,0 +1,19 @@
+id: m300_domain_events
+namespace: m300.monitoring
+description: Start a Kestra execution for each M300 domain event delivered through RabbitMQ.
+
+tasks:
+  - id: log_event
+    type: io.kestra.plugin.core.log.Log
+    message: "M300 domain event received: {{ trigger.data | toJson }}"
+
+triggers:
+  - id: rabbitmq_events
+    type: io.kestra.plugin.amqp.RealtimeTrigger
+    host: rabbitmq
+    port: 5672
+    username: "{{ secret('AMQP_USERNAME') }}"
+    password: "{{ secret('AMQP_PASSWORD') }}"
+    virtualHost: /
+    queue: kestra.m300.domain-events
+    serdeType: JSON

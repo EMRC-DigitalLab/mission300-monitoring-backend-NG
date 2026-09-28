@@ -23,6 +23,7 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "check": "pnpm verify && pnpm build",
     "docker:dev": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch",
+    "docker:kestra": "docker compose -p m300-ng-backend -f docker/docker-compose.yml -f docker/docker-compose.override.yml --env-file .env.development --profile kestra up --detach kestra",
     "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch --detach",
     "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env.development down",
     "docker:logs": "docker compose -f docker/docker-compose.yml --env-file .env.development logs --follow api",

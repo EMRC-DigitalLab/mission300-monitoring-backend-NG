@@ -1,0 +1,35 @@
+id: m300_setup_event_queue
+namespace: m300.monitoring
+description: Create the Kestra queue and bind it to the M300 domain event exchange.
+
+tasks:
+  - id: declare_event_exchange
+    type: io.kestra.plugin.amqp.DeclareExchange
+    host: rabbitmq
+    port: 5672
+    username: "{{ secret('AMQP_USERNAME') }}"
+    password: "{{ secret('AMQP_PASSWORD') }}"
+    virtualHost: /
+    name: m300.events
+    exchangeType: TOPIC
+
+  - id: create_queue
+    type: io.kestra.plugin.amqp.CreateQueue
+    host: rabbitmq
+    port: 5672
+    username: "{{ secret('AMQP_USERNAME') }}"
+    password: "{{ secret('AMQP_PASSWORD') }}"
+    virtualHost: /
+    name: kestra.m300.domain-events
+    durability: true
+
+  - id: bind_domain_events
+    type: io.kestra.plugin.amqp.QueueBind
+    host: rabbitmq
+    port: 5672
+    username: "{{ secret('AMQP_USERNAME') }}"
+    password: "{{ secret('AMQP_PASSWORD') }}"
+    virtualHost: /
+    exchange: m300.events
+    queue: kestra.m300.domain-events
+    routingKey: "#"
