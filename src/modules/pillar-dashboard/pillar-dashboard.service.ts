@@ -83,7 +83,17 @@ export class PillarDashboardService {
     const catalogueRows = kpis.map((kpi) => toCatalogueRow(kpi, latestByKpi.get(kpi.id) ?? null));
 
     const coreIndicators = kpis
-      .filter((kpi) => !headlineCodes.includes(kpi.code))
+      .filter((kpi) => {
+        if (headlineCodes.includes(kpi.code)) return false;
+        // P4-001 is derived from the REA P4-009 snapshot. Keep the source KPI
+        // in the catalogue, but don't repeat an identical current reading.
+        if (pillarSlug === "private-sector-participation" && kpi.code === "M300-P4-009") {
+          const headlineValue = profilesByCode.get("M300-P4-001")?.current;
+          const sourceValue = profilesByCode.get("M300-P4-009")?.current;
+          if (headlineValue !== null && headlineValue === sourceValue) return false;
+        }
+        return true;
+      })
       .map((kpi) => toPillarCoreIndicator(profilesByCode.get(kpi.code)!, kpi.sourceDataset || "Other"));
 
     const [programmes, projects, bottlenecksRaw] = await Promise.all([
