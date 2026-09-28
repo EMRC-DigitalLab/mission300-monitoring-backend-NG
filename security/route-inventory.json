@@ -1,0 +1,1316 @@
+[
+  {
+    "method": "POST",
+    "route": "/files/upload",
+    "controller": "FilesController",
+    "handler": "upload",
+    "roles": [],
+    "public": false,
+    "file": "src/files/files.controller.ts",
+    "line": 29,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/files/:id",
+    "controller": "FilesController",
+    "handler": "download",
+    "roles": [],
+    "public": false,
+    "file": "src/files/files.controller.ts",
+    "line": 37,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/administration/audit-log",
+    "controller": "AuditLogController",
+    "handler": "findAll",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR",
+      "OVERSIGHT_USER"
+    ],
+    "public": false,
+    "file": "src/modules/administration/audit-log/audit-log.controller.ts",
+    "line": 13,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/branding",
+    "controller": "BrandingController",
+    "handler": "get",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 35,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/branding/logo/:filename",
+    "controller": "BrandingController",
+    "handler": "getLogo",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 43,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PUT",
+    "route": "/branding",
+    "controller": "BrandingController",
+    "handler": "updateColors",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 55,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PUT",
+    "route": "/branding/fonts",
+    "controller": "BrandingController",
+    "handler": "updateFonts",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 63,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/branding/reset",
+    "controller": "BrandingController",
+    "handler": "reset",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 71,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/branding/logo",
+    "controller": "BrandingController",
+    "handler": "uploadLogo",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/branding/branding.controller.ts",
+    "line": 79,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/administration/filters",
+    "controller": "OverviewController",
+    "handler": "getFilters",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/overview/overview.controller.ts",
+    "line": 18,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/administration",
+    "controller": "OverviewController",
+    "handler": "getOverview",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/overview/overview.controller.ts",
+    "line": 23,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/administration/security",
+    "controller": "SecuritySettingsController",
+    "handler": "get",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/security/security-settings.controller.ts",
+    "line": 20,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PUT",
+    "route": "/administration/security",
+    "controller": "SecuritySettingsController",
+    "handler": "update",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/security/security-settings.controller.ts",
+    "line": 25,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/administration/users",
+    "controller": "UsersController",
+    "handler": "findAll",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/users/users.controller.ts",
+    "line": 18,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/administration/users/invite",
+    "controller": "UsersController",
+    "handler": "invite",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/users/users.controller.ts",
+    "line": 23,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/administration/users/:id/status",
+    "controller": "UsersController",
+    "handler": "setStatus",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/users/users.controller.ts",
+    "line": 29,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/administration/users/:id/roles",
+    "controller": "UsersController",
+    "handler": "updateRoles",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/users/users.controller.ts",
+    "line": 35,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/administration/users/:id/institution",
+    "controller": "UsersController",
+    "handler": "updateInstitution",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/administration/users/users.controller.ts",
+    "line": 41,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/identify",
+    "controller": "AuthController",
+    "handler": "identify",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 45,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/login",
+    "controller": "AuthController",
+    "handler": "login",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 53,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/refresh",
+    "controller": "AuthController",
+    "handler": "refresh",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 65,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/forgot-password",
+    "controller": "AuthController",
+    "handler": "forgotPassword",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 79,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/set-password",
+    "controller": "AuthController",
+    "handler": "setPassword",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 90,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/auth/logout",
+    "controller": "AuthController",
+    "handler": "logout",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/auth/auth.controller.ts",
+    "line": 100,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/bottlenecks/filters",
+    "controller": "BottlenecksController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 21,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/bottlenecks",
+    "controller": "BottlenecksController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 26,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/bottlenecks",
+    "controller": "BottlenecksController",
+    "handler": "create",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 31,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/bottlenecks/:id",
+    "controller": "BottlenecksController",
+    "handler": "updateStatus",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 37,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/bottlenecks/by-project/:projectId",
+    "controller": "BottlenecksController",
+    "handler": "getByProject",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 43,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "DELETE",
+    "route": "/bottlenecks/:id",
+    "controller": "BottlenecksController",
+    "handler": "delete",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR",
+      "DASHBOARD_MANAGER"
+    ],
+    "public": false,
+    "file": "src/modules/bottlenecks/bottlenecks.controller.ts",
+    "line": 48,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/filters",
+    "controller": "DataSubmissionsController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 47,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/datasets",
+    "controller": "DataSubmissionsController",
+    "handler": "getDatasets",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 52,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/obligations",
+    "controller": "DataSubmissionsController",
+    "handler": "getObligations",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 57,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/submissions",
+    "controller": "DataSubmissionsController",
+    "handler": "getSubmissions",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 62,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/overdue",
+    "controller": "DataSubmissionsController",
+    "handler": "getOverdue",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 67,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/gaps",
+    "controller": "DataSubmissionsController",
+    "handler": "getGaps",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 72,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/obligations/:id/entry",
+    "controller": "DataSubmissionsController",
+    "handler": "getEntryDefinition",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 77,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/data-submissions/obligations/:id/entry",
+    "controller": "DataSubmissionsController",
+    "handler": "saveEntry",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 82,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/obligations/:id/upload",
+    "controller": "DataSubmissionsController",
+    "handler": "getUploadDefinition",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 88,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/data-submissions/obligations/:id/upload",
+    "controller": "DataSubmissionsController",
+    "handler": "uploadSubmission",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 93,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/templates/:fileName",
+    "controller": "DataSubmissionsController",
+    "handler": "getTemplate",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 118,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/validation",
+    "controller": "DataSubmissionsController",
+    "handler": "getValidationQueue",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 128,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/data-submissions/validation/:id",
+    "controller": "DataSubmissionsController",
+    "handler": "getSubmissionDetail",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 133,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/data-submissions/validation/:id/decisions",
+    "controller": "DataSubmissionsController",
+    "handler": "recordDecision",
+    "roles": [
+      "DATA_REVIEWER",
+      "VALIDATOR"
+    ],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 141,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/data-submissions/validation/bulk-decisions",
+    "controller": "DataSubmissionsController",
+    "handler": "bulkRecordDecision",
+    "roles": [
+      "DATA_REVIEWER",
+      "VALIDATOR"
+    ],
+    "public": false,
+    "file": "src/modules/data-submissions/data-submissions.controller.ts",
+    "line": 152,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/executive-overview",
+    "controller": "ExecutiveOverviewController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/executive-overview/executive-overview.controller.ts",
+    "line": 16,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/filters",
+    "controller": "FiltersController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/filters/filters.controller.ts",
+    "line": 14,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/health",
+    "controller": "HealthController",
+    "handler": "check",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/health/health.controller.ts",
+    "line": 17,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/institutions",
+    "controller": "InstitutionsController",
+    "handler": "findAll",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/institutions/institutions.controller.ts",
+    "line": 13,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/institutions/me/overview",
+    "controller": "InstitutionsController",
+    "handler": "getMyOverview",
+    "roles": [
+      "INSTITUTIONAL_DATA_PROVIDER"
+    ],
+    "public": false,
+    "file": "src/modules/institutions/institutions.controller.ts",
+    "line": 18,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/institutions/:id",
+    "controller": "InstitutionsController",
+    "handler": "findOne",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/institutions/institutions.controller.ts",
+    "line": 24,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/kpi-explorer/filters",
+    "controller": "KpiExplorerController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 27,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/kpi-explorer",
+    "controller": "KpiExplorerController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 32,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/kpi-explorer/kpis/:id",
+    "controller": "KpiExplorerController",
+    "handler": "getProfile",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 39,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/kpi-explorer/kpis/:id",
+    "controller": "KpiExplorerController",
+    "handler": "updateMetadata",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 44,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/kpi-explorer/kpis",
+    "controller": "KpiExplorerController",
+    "handler": "create",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 51,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/kpi-explorer/kpis/:id/active",
+    "controller": "KpiExplorerController",
+    "handler": "setActive",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 58,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/kpi-explorer/kpis/:id/current-value",
+    "controller": "KpiExplorerController",
+    "handler": "setCurrentValue",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 68,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/kpi-explorer/kpis/:id/history/:valueId",
+    "controller": "KpiExplorerController",
+    "handler": "editHistoryPoint",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 82,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "DELETE",
+    "route": "/kpi-explorer/kpis/:id/history/:valueId",
+    "controller": "KpiExplorerController",
+    "handler": "deleteHistoryPoint",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/kpi-explorer/kpi-explorer.controller.ts",
+    "line": 93,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/kpis",
+    "controller": "KpisController",
+    "handler": "findAll",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/kpis/kpis.controller.ts",
+    "line": 11,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/kpis/:id/values",
+    "controller": "KpisController",
+    "handler": "findValues",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/kpis/kpis.controller.ts",
+    "line": 16,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/learning-log",
+    "controller": "LearningLogController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/learning-log/learning-log.controller.ts",
+    "line": 21,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/learning-log",
+    "controller": "LearningLogController",
+    "handler": "create",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/learning-log/learning-log.controller.ts",
+    "line": 26,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/pillars/:pillar",
+    "controller": "PillarDashboardController",
+    "handler": "getDashboard",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR",
+      "DASHBOARD_MANAGER",
+      "OVERSIGHT_USER"
+    ],
+    "public": false,
+    "file": "src/modules/pillar-dashboard/pillar-dashboard.controller.ts",
+    "line": 20,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/users/me",
+    "controller": "ProfileController",
+    "handler": "get",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/profile/profile.controller.ts",
+    "line": 17,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/users/me",
+    "controller": "ProfileController",
+    "handler": "update",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/profile/profile.controller.ts",
+    "line": 22,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs/filters",
+    "controller": "ProgramsController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 25,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs",
+    "controller": "ProgramsController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 30,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/programs",
+    "controller": "ProgramsController",
+    "handler": "createProgramme",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 35,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs/projects/:projectId",
+    "controller": "ProgramsController",
+    "handler": "getProject",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 41,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs/projects/:projectId/milestones",
+    "controller": "ProgramsController",
+    "handler": "getMilestones",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 46,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/programs/projects/:projectId/milestones",
+    "controller": "ProgramsController",
+    "handler": "createMilestone",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 51,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/programs/projects",
+    "controller": "ProgramsController",
+    "handler": "createProject",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 57,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/programs/projects/:projectId",
+    "controller": "ProgramsController",
+    "handler": "updateProject",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 63,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "DELETE",
+    "route": "/programs/projects/:projectId",
+    "controller": "ProgramsController",
+    "handler": "deleteProject",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 69,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs/:programmeId",
+    "controller": "ProgramsController",
+    "handler": "getProgramme",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 78,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/programs/:programmeId/projects",
+    "controller": "ProgramsController",
+    "handler": "getProjectsForProgramme",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/programs/programs.controller.ts",
+    "line": 83,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/public/overview",
+    "controller": "PublicOverviewController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/public-overview/public-overview.controller.ts",
+    "line": 16,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/public/state-coverage",
+    "controller": "PublicOverviewController",
+    "handler": "getStateCoverage",
+    "roles": [],
+    "public": true,
+    "file": "src/modules/public-overview/public-overview.controller.ts",
+    "line": 23,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/reports/filters",
+    "controller": "ReportsController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 23,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/reports",
+    "controller": "ReportsController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 28,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/reports/methodology",
+    "controller": "ReportsController",
+    "handler": "getMethodology",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 33,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/reports/preview",
+    "controller": "ReportsController",
+    "handler": "preview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 38,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/reports/generate",
+    "controller": "ReportsController",
+    "handler": "generate",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 44,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "DELETE",
+    "route": "/reports/saved/:id",
+    "controller": "ReportsController",
+    "handler": "deleteSaved",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/reports/reports.controller.ts",
+    "line": 50,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/stakeholders",
+    "controller": "StakeholdersController",
+    "handler": "getOverview",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/stakeholders/stakeholders.controller.ts",
+    "line": 14,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/stakeholders/institutions",
+    "controller": "StakeholdersController",
+    "handler": "findInstitutions",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/stakeholders/stakeholders.controller.ts",
+    "line": 19,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/stakeholders/data-custodians",
+    "controller": "StakeholdersController",
+    "handler": "findDataCustodians",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/stakeholders/stakeholders.controller.ts",
+    "line": 24,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/filters",
+    "controller": "StateDiscoController",
+    "handler": "getFilters",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 28,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/overview",
+    "controller": "StateDiscoController",
+    "handler": "getOverview",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 33,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/comparison",
+    "controller": "StateDiscoController",
+    "handler": "getComparison",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 38,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/supply-tariff",
+    "controller": "StateDiscoController",
+    "handler": "getSupplyTariff",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 43,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/delivery",
+    "controller": "StateDiscoController",
+    "handler": "getDelivery",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 48,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/state-disco/institutions/:institutionId/performance",
+    "controller": "StateDiscoController",
+    "handler": "upsertPerformance",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 53,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/state-disco/institutions/:institutionId/service-bands",
+    "controller": "StateDiscoController",
+    "handler": "upsertServiceBand",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 60,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/state-disco/institutions/:institutionId/delivery-milestones",
+    "controller": "StateDiscoController",
+    "handler": "createDeliveryMilestone",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 67,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/state-disco/delivery-milestones/:milestoneId",
+    "controller": "StateDiscoController",
+    "handler": "updateDeliveryMilestone",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 77,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/states",
+    "controller": "StateDiscoController",
+    "handler": "getStates",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 87,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/state-disco/states/:id",
+    "controller": "StateDiscoController",
+    "handler": "getStateDetail",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 92,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/state-disco/states/:id/validate",
+    "controller": "StateDiscoController",
+    "handler": "validateState",
+    "roles": [
+      "SYSTEM_ADMINISTRATOR"
+    ],
+    "public": false,
+    "file": "src/modules/state-disco/state-disco.controller.ts",
+    "line": 97,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/submissions",
+    "controller": "SubmissionsController",
+    "handler": "list",
+    "roles": [],
+    "public": false,
+    "file": "src/modules/submissions/submissions.controller.ts",
+    "line": 16,
+    "registration": "legacy module not imported by AppModule"
+  },
+  {
+    "method": "POST",
+    "route": "/submissions",
+    "controller": "SubmissionsController",
+    "handler": "create",
+    "roles": [
+      "INSTITUTIONAL_DATA_PROVIDER"
+    ],
+    "public": false,
+    "file": "src/modules/submissions/submissions.controller.ts",
+    "line": 21,
+    "registration": "legacy module not imported by AppModule"
+  },
+  {
+    "method": "POST",
+    "route": "/submissions/:id/submit",
+    "controller": "SubmissionsController",
+    "handler": "submit",
+    "roles": [
+      "INSTITUTIONAL_DATA_PROVIDER"
+    ],
+    "public": false,
+    "file": "src/modules/submissions/submissions.controller.ts",
+    "line": 28,
+    "registration": "legacy module not imported by AppModule"
+  },
+  {
+    "method": "POST",
+    "route": "/submissions/:id/start-review",
+    "controller": "SubmissionsController",
+    "handler": "startReview",
+    "roles": [
+      "DATA_REVIEWER",
+      "VALIDATOR"
+    ],
+    "public": false,
+    "file": "src/modules/submissions/submissions.controller.ts",
+    "line": 35,
+    "registration": "legacy module not imported by AppModule"
+  },
+  {
+    "method": "POST",
+    "route": "/submissions/:id/decision",
+    "controller": "SubmissionsController",
+    "handler": "recordDecision",
+    "roles": [
+      "DATA_REVIEWER",
+      "VALIDATOR"
+    ],
+    "public": false,
+    "file": "src/modules/submissions/submissions.controller.ts",
+    "line": 42,
+    "registration": "legacy module not imported by AppModule"
+  },
+  {
+    "method": "GET",
+    "route": "/notifications",
+    "controller": "NotificationsFeedController",
+    "handler": "list",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/feed/notifications-feed.controller.ts",
+    "line": 12,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/notifications/:id/read",
+    "controller": "NotificationsFeedController",
+    "handler": "markRead",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/feed/notifications-feed.controller.ts",
+    "line": 17,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "PATCH",
+    "route": "/notifications/read-all",
+    "controller": "NotificationsFeedController",
+    "handler": "markAllRead",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/feed/notifications-feed.controller.ts",
+    "line": 22,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "GET",
+    "route": "/webhooks",
+    "controller": "WebhooksController",
+    "handler": "list",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/webhooks/webhooks.controller.ts",
+    "line": 14,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "POST",
+    "route": "/webhooks",
+    "controller": "WebhooksController",
+    "handler": "create",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/webhooks/webhooks.controller.ts",
+    "line": 19,
+    "registration": "controller in current module tree"
+  },
+  {
+    "method": "DELETE",
+    "route": "/webhooks/:id",
+    "controller": "WebhooksController",
+    "handler": "remove",
+    "roles": [],
+    "public": false,
+    "file": "src/notifications/webhooks/webhooks.controller.ts",
+    "line": 25,
+    "registration": "controller in current module tree"
+  }
+]

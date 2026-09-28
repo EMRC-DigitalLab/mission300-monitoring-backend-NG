@@ -193,6 +193,8 @@ model PasswordResetToken {
   tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?
+  purpose    String    @default("RESET") // RESET or INVITE; enforced by a DB check
+  tokenVersion Int     @default(0) // user's session version when issued
   createdAt  DateTime  @default(now())
 
   @@index([userId])

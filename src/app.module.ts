@@ -4,6 +4,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 import { validateEnv } from "@/config/env.validation";
+import { httpLoggerOptions } from "@/config/logging";
 import { PrismaModule } from "@/prisma/prisma.module";
 import { RabbitmqModule } from "@/events/rabbitmq.module";
 import { StorageModule } from "@/storage/storage.module";
@@ -46,16 +47,7 @@ import { PublicOverviewModule } from "@/modules/public-overview/public-overview.
     // see auth.controller.ts. See WEB-007 in the audit report.
     ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     LoggerModule.forRoot({
-      pinoHttp: {
-        // pino-pretty is a devDependency, pruned from the Docker image - the
-        // ONLY environment that has it on disk is genuine local development
-        // (`pnpm dev`, not containerized). staging runs the same pruned
-        // image as production, so it must get plain JSON logs too, not just
-        // production - checking `=== "production"` here previously crashed
-        // every staging boot trying to load a transport that doesn't exist.
-        level: process.env.NODE_ENV === "development" ? "debug" : "info",
-        transport: process.env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
-      },
+      pinoHttp: httpLoggerOptions(),
     }),
     PrismaModule,
     RabbitmqModule,

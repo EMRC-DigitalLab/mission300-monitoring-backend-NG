@@ -81,8 +81,22 @@ export class UsersService {
   }
 
   async setStatus(id: string, status: AccountStatus) {
-    const user = await this.prisma.user.update({ where: { id }, data: { status }, include: { institution: true } });
-    return toUserAccountResponse(user);
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id },
+        data: { status, tokenVersion: { increment: 1 } },
+        include: { institution: true },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      return toUserAccountResponse(user);
+    });
   }
 
   async updateRoles(id: string, roles: RoleName[]) {

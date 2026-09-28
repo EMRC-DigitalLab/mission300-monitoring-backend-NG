@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
+import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
 import { ExecutionStatus } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
@@ -198,9 +200,11 @@ export class ProgramsService {
     return paginate(milestones.map(toMilestoneRecord), query.page ?? 1, pageSize);
   }
 
-  async createMilestone(projectId: string, dto: CreateMilestoneDto) {
+  async createMilestone(user: AuthenticatedUser, projectId: string, dto: CreateMilestoneDto) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException("The project was not found.");
+
+    await assertOperationalInstitutionAccess(this.prisma, user, project.owner);
 
     const milestone = await this.prisma.milestone.create({
       data: {
@@ -247,7 +251,8 @@ export class ProgramsService {
     };
   }
 
-  async createProject(dto: UpsertProjectDto) {
+  async createProject(user: AuthenticatedUser, dto: UpsertProjectDto) {
+    await assertOperationalInstitutionAccess(this.prisma, user, dto.owner);
     const programme = await this.prisma.programme.findUnique({ where: { id: dto.programmeId } });
     if (!programme) throw new NotFoundException("Select a valid programme.");
 
@@ -299,9 +304,12 @@ export class ProgramsService {
     };
   }
 
-  async updateProject(projectId: string, dto: UpsertProjectDto) {
+  async updateProject(user: AuthenticatedUser, projectId: string, dto: UpsertProjectDto) {
     const existing = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!existing) throw new NotFoundException("The project was not found.");
+
+    await assertOperationalInstitutionAccess(this.prisma, user, existing.owner);
+    await assertOperationalInstitutionAccess(this.prisma, user, dto.owner);
 
     const pillar = await this.prisma.pillar.findUnique({ where: { slug: dto.pillar } });
     if (!pillar) throw new NotFoundException("Unknown pillar.");
@@ -309,7 +317,7 @@ export class ProgramsService {
     const statusChanged = dto.currentStatus !== existing.currentStatus;
 
     const project = await this.prisma.project.update({
-      where: { id: projectId },
+      where: { id: projectId, owner: existing.owner },
       data: {
         name: dto.name.trim(),
         programmeId: dto.programmeId,
@@ -335,11 +343,13 @@ export class ProgramsService {
     };
   }
 
-  async deleteProject(projectId: string) {
+  async deleteProject(user: AuthenticatedUser, projectId: string) {
     const existing = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!existing) throw new NotFoundException("The project was not found.");
 
-    await this.prisma.project.delete({ where: { id: projectId } });
+    await assertOperationalInstitutionAccess(this.prisma, user, existing.owner);
+
+    await this.prisma.project.delete({ where: { id: projectId, owner: existing.owner } });
     return { message: `${existing.id} has been removed from the project register.` };
   }
 }

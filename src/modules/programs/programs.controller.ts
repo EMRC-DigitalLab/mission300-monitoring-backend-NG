@@ -8,14 +8,13 @@ import { CreateProgrammeDto } from "@/modules/programs/dto/create-programme.dto"
 import { CreateMilestoneDto } from "@/modules/programs/dto/create-milestone.dto";
 import { UpsertProjectDto } from "@/modules/programs/dto/upsert-project.dto";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { Roles } from "@/common/decorators/roles.decorator";
+import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
+import { OPERATIONAL_MANAGERS, OPERATIONAL_WRITERS } from "@/common/guards/operational-scope";
 
 // Phase A of the Programs/Bottlenecks rebuild: the consolidated Programmes ->
 // Projects -> Milestones drill-down (m300-frontend/src/api/schemas/
-// programs.ts). No role-gating on the mutations here - confirmed directly
-// against docs/API.md's "Role enforcement is entirely client-side today"
-// section, which names only KPI definition editing and branding as needing
-// a real server-side check; every Programs mutation is reachable by anyone,
-// same as the real mock ("No auth/role check gates this").
+// programs.ts). Mutations enforce backend roles and institution ownership.
 @ApiTags("programs")
 @ApiBearerAuth()
 @Controller("programs")
@@ -33,6 +32,7 @@ export class ProgramsController {
   }
 
   @Post()
+  @Roles(...OPERATIONAL_MANAGERS)
   @AuditAction("programme.created")
   createProgramme(@Body() dto: CreateProgrammeDto) {
     return this.programs.createProgramme(dto);
@@ -49,27 +49,39 @@ export class ProgramsController {
   }
 
   @Post("projects/:projectId/milestones")
+  @Roles(...OPERATIONAL_WRITERS)
   @AuditAction("milestone.created")
-  createMilestone(@Param("projectId") projectId: string, @Body() dto: CreateMilestoneDto) {
-    return this.programs.createMilestone(projectId, dto);
+  createMilestone(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("projectId") projectId: string,
+    @Body() dto: CreateMilestoneDto,
+  ) {
+    return this.programs.createMilestone(user, projectId, dto);
   }
 
   @Post("projects")
+  @Roles(...OPERATIONAL_WRITERS)
   @AuditAction("project.created")
-  createProject(@Body() dto: UpsertProjectDto) {
-    return this.programs.createProject(dto);
+  createProject(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpsertProjectDto) {
+    return this.programs.createProject(user, dto);
   }
 
   @Patch("projects/:projectId")
+  @Roles(...OPERATIONAL_WRITERS)
   @AuditAction("project.updated")
-  updateProject(@Param("projectId") projectId: string, @Body() dto: UpsertProjectDto) {
-    return this.programs.updateProject(projectId, dto);
+  updateProject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("projectId") projectId: string,
+    @Body() dto: UpsertProjectDto,
+  ) {
+    return this.programs.updateProject(user, projectId, dto);
   }
 
   @Delete("projects/:projectId")
+  @Roles(...OPERATIONAL_WRITERS)
   @AuditAction("project.deleted")
-  deleteProject(@Param("projectId") projectId: string) {
-    return this.programs.deleteProject(projectId);
+  deleteProject(@CurrentUser() user: AuthenticatedUser, @Param("projectId") projectId: string) {
+    return this.programs.deleteProject(user, projectId);
   }
 
   // Registered after the /projects/* routes above so Nest's routing doesn't

@@ -23,7 +23,7 @@ const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 export class FilesController {
   constructor(private readonly files: FilesService) {}
 
-  // Generic upload - accepts any file type. For the structured Excel/CSV
+  // Generic evidence upload validates supported file formats. Structured Excel/CSV
   // submission-data upload, see the data-submissions module instead: that
   // one parses the file into SubmissionItems rather than storing it as-is.
   @Post("upload")
@@ -43,7 +43,9 @@ export class FilesController {
     const { record, buffer } = await this.files.download(user, id);
     res.set({
       "Content-Type": record.mimeType,
-      "Content-Disposition": `attachment; filename="${record.originalName}"`,
+      "Content-Disposition": `attachment; filename="download${record.originalName.match(/\.[a-z0-9]+$/i)?.[0] ?? ""}"; filename*=UTF-8''${encodeURIComponent(record.originalName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16)}`)}`,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox; default-src 'none'",
     });
     return new StreamableFile(buffer);
   }

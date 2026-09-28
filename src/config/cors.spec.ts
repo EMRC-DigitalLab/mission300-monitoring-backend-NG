@@ -7,9 +7,31 @@ describe("isAllowedOrigin", () => {
     expect(isAllowedOrigin("https://m300.energymrc.ng", configured, false)).toBe(true);
   });
 
-  it("allows any vercel.app subdomain regardless of environment", () => {
-    expect(isAllowedOrigin("https://m300-frontend-git-feature-x.vercel.app", configured, false)).toBe(true);
-    expect(isAllowedOrigin("https://m300-frontend-git-feature-x.vercel.app", configured, true)).toBe(true);
+  it("rejects unconfigured Vercel tenants in every environment", () => {
+    expect(isAllowedOrigin("https://m300-frontend-git-feature-x.vercel.app", configured, false)).toBe(false);
+    expect(isAllowedOrigin("https://m300-frontend-git-feature-x.vercel.app", configured, true)).toBe(false);
+  });
+
+  it("allows only explicitly configured preview origins", () => {
+    expect(
+      isAllowedOrigin(
+        "https://trusted-preview.vercel.app",
+        [...configured, "https://trusted-preview.vercel.app"],
+        false,
+      ),
+    ).toBe(true);
+    expect(isAllowedOrigin("https://unrelated-tenant.vercel.app", configured, false)).toBe(false);
+  });
+
+  it.each([
+    "null",
+    "https://m300.energymrc.ng/path",
+    "https://user:pass@m300.energymrc.ng",
+    "https://m300.energymrc.ng.evil.test",
+    "https://m300.energymrc.ng?token=secret",
+    "file://localhost",
+  ])("rejects malformed or untrusted origin %s", (origin) => {
+    expect(isAllowedOrigin(origin, configured, false)).toBe(false);
   });
 
   it("allows localhost on any port only in development", () => {

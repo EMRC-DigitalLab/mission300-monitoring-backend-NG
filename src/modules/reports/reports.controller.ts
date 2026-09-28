@@ -5,6 +5,8 @@ import { ReportsQueryDto } from "@/modules/reports/dto/reports-query.dto";
 import { ReportConfigDto } from "@/modules/reports/dto/report-config.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { Roles } from "@/common/decorators/roles.decorator";
+import { OPERATIONAL_MANAGERS } from "@/common/guards/operational-scope";
 
 // Reports & Exports (m300-frontend/src/api/schemas/reports.ts) - a pure
 // read-composition layer over KPI Explorer/Programs/Bottlenecks/State &
@@ -12,8 +14,8 @@ import { AuditAction } from "@/common/decorators/audit-action.decorator";
 // never renders an actual PDF/XLSX file - confirmed directly from the real
 // mock's own handler comment - so /preview and /generate both return the
 // same {metadata, sections} JSON; the frontend builds the downloadable
-// file client-side from it. No role-gating - the real mock has none for
-// any of these routes.
+// file client-side from it. Export and shared-library management use
+// explicit server-side role checks.
 @ApiTags("reports")
 @ApiBearerAuth()
 @Controller("reports")
@@ -36,18 +38,21 @@ export class ReportsController {
   }
 
   @Post("preview")
+  @Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER")
   @HttpCode(200)
   preview(@Body() dto: ReportConfigDto) {
     return this.reports.preview(dto);
   }
 
   @Post("generate")
+  @Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER")
   @AuditAction("report.requested")
   generate(@CurrentUser() user: AuthenticatedUser, @Body() dto: ReportConfigDto) {
     return this.reports.generate(user, dto);
   }
 
   @Delete("saved/:id")
+  @Roles(...OPERATIONAL_MANAGERS)
   @HttpCode(204)
   @AuditAction("report.deleted")
   async deleteSaved(@Param("id") id: string) {

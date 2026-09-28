@@ -1,10 +1,22 @@
 import { randomBytes, createHmac } from "node:crypto";
-import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { WebhookDeliveryStatus, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { CreateWebhookSubscriptionDto } from "@/notifications/webhooks/dto/create-webhook-subscription.dto";
 import { assertPublicWebhookUrl, WebhookUrlBlockedError } from "@/notifications/webhooks/ssrf-guard";
+import { postWebhook } from "@/notifications/webhooks/webhook-transport";
+import {
+  assertWebhookAdministrator,
+  assertWebhookPatterns,
+  publicWebhookPayload,
+} from "@/notifications/webhooks/webhook-policy";
 
 @Injectable()
 export class WebhooksService {
@@ -13,6 +25,8 @@ export class WebhooksService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(user: AuthenticatedUser, dto: CreateWebhookSubscriptionDto) {
+    assertWebhookAdministrator(user);
+    assertWebhookPatterns(dto.events);
     try {
       await assertPublicWebhookUrl(dto.url);
     } catch (error) {
@@ -30,6 +44,7 @@ export class WebhooksService {
   }
 
   listForUser(user: AuthenticatedUser) {
+    assertWebhookAdministrator(user);
     return this.prisma.webhookSubscription.findMany({
       where: { ownerId: user.id },
       select: { id: true, url: true, events: true, isActive: true, createdAt: true },
@@ -37,6 +52,7 @@ export class WebhooksService {
   }
 
   async remove(user: AuthenticatedUser, id: string) {
+    assertWebhookAdministrator(user);
     const subscription = await this.prisma.webhookSubscription.findUnique({ where: { id } });
     if (!subscription) throw new NotFoundException("Webhook subscription not found");
     if (subscription.ownerId !== user.id) {
@@ -53,13 +69,33 @@ export class WebhooksService {
    * visible, but re-sending is a manual/future addition, not built now.
    */
   async dispatch(event: string, payload: unknown): Promise<void> {
+    const safePayload = publicWebhookPayload(event, payload);
+    if (!safePayload) return;
     const subscriptions = await this.prisma.webhookSubscription.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        owner: {
+          status: "ACTIVE",
+          OR: [
+            { roles: { has: "SYSTEM_ADMINISTRATOR" } },
+            { roles: { isEmpty: true }, role: "SYSTEM_ADMINISTRATOR" },
+          ],
+        },
+      },
+      include: { owner: { select: { id: true, role: true, roles: true, status: true } } },
     });
 
-    const matching = subscriptions.filter((sub) => sub.events.some((pattern) => matches(pattern, event)));
+    const matching = subscriptions.filter((sub) => {
+      if (sub.owner.status !== "ACTIVE") return false;
+      try {
+        assertWebhookAdministrator({ ...sub.owner, institutionId: null });
+      } catch {
+        return false;
+      }
+      return sub.events.some((pattern) => matches(pattern, event));
+    });
 
-    await Promise.all(matching.map((sub) => this.deliver(sub, event, payload)));
+    await Promise.all(matching.map((sub) => this.deliver(sub, event, safePayload)));
   }
 
   private async deliver(
@@ -71,26 +107,22 @@ export class WebhooksService {
     const signature = createHmac("sha256", subscription.secret).update(body).digest("hex");
 
     try {
-      await assertPublicWebhookUrl(subscription.url);
-
-      const response = await fetch(subscription.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-M300-Signature": `sha256=${signature}` },
-        body,
-        signal: AbortSignal.timeout(10_000),
-      });
+      const responseStatus = await postWebhook(subscription.url, body, signature);
 
       await this.recordDelivery(subscription.id, event, payload, {
-        status: response.ok ? WebhookDeliveryStatus.SUCCESS : WebhookDeliveryStatus.FAILED,
-        responseStatus: response.status,
+        status:
+          responseStatus >= 200 && responseStatus < 300
+            ? WebhookDeliveryStatus.SUCCESS
+            : WebhookDeliveryStatus.FAILED,
+        responseStatus,
       });
     } catch (error) {
-      this.logger.warn(
-        `Webhook delivery failed for subscription ${subscription.id}: ${(error as Error).message}`,
-      );
+      const failure =
+        error instanceof WebhookUrlBlockedError ? "Destination blocked" : "Network or TLS delivery failure";
+      this.logger.warn(`Webhook delivery failed for subscription ${subscription.id}: ${failure}`);
       await this.recordDelivery(subscription.id, event, payload, {
         status: WebhookDeliveryStatus.FAILED,
-        error: (error as Error).message,
+        error: failure,
       });
     }
   }

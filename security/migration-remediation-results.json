@@ -1,0 +1,6 @@
+{
+  "recoveryUpgradeCases": 3,
+  "webhookUpgradeCases": 5,
+  "passed": true,
+  "scope": "Temporary tables in an isolated test database; transaction rolled back."
+}

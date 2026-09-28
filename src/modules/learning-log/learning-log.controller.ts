@@ -5,13 +5,13 @@ import { LearningLogQueryDto } from "@/modules/learning-log/dto/learning-log-que
 import { CreateLearningLogEntryDto } from "@/modules/learning-log/dto/create-learning-log-entry.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { Roles } from "@/common/decorators/roles.decorator";
+import { OPERATIONAL_MANAGERS } from "@/common/guards/operational-scope";
 
 // The Learning & Decision Log (m300-frontend/src/api/schemas/learning-
 // log.ts) - added per the SE4ALL MRL alignment review. Course-correction
 // decisions and their rationale, distinct from Bottlenecks & Exceptions
-// (what's currently blocked). No role-gating - the real mock's handlers
-// have none, and the frontend only restricts which roles see the nav
-// entry, not which roles the API accepts writes from.
+// (what's currently blocked). Writes require operational manager access.
 @ApiTags("learning-log")
 @ApiBearerAuth()
 @Controller("learning-log")
@@ -24,6 +24,7 @@ export class LearningLogController {
   }
 
   @Post()
+  @Roles(...OPERATIONAL_MANAGERS)
   @AuditAction("learning_log.entry_created")
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateLearningLogEntryDto) {
     return this.learningLog.create(user, dto);

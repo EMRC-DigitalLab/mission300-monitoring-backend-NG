@@ -4,9 +4,11 @@ import { WebhooksService } from "@/notifications/webhooks/webhooks.service";
 import { CreateWebhookSubscriptionDto } from "@/notifications/webhooks/dto/create-webhook-subscription.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
+import { Roles } from "@/common/decorators/roles.decorator";
 
 @ApiTags("webhooks")
 @ApiBearerAuth()
+@Roles("SYSTEM_ADMINISTRATOR")
 @Controller("webhooks")
 export class WebhooksController {
   constructor(private readonly webhooks: WebhooksService) {}

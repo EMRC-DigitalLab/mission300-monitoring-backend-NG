@@ -2,6 +2,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import request from "supertest";
+import cookieParser from "cookie-parser";
 import { randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 import { AppModule } from "@/app.module";
@@ -27,6 +28,7 @@ export async function createTestApp(opts: { realThrottle?: boolean } = {}): Prom
   }
   const moduleRef: TestingModule = await builder.compile();
   const app = moduleRef.createNestApplication();
+  app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   await app.init();
   return app;

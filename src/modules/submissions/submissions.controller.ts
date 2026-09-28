@@ -35,8 +35,8 @@ export class SubmissionsController {
   @Roles("DATA_REVIEWER", "VALIDATOR")
   @Post(":id/start-review")
   @AuditAction("submission.review_started")
-  startReview(@Param("id") id: string) {
-    return this.submissions.startReview(id);
+  startReview(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.submissions.startReview(user, id);
   }
 
   @Roles("DATA_REVIEWER", "VALIDATOR")

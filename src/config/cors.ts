@@ -1,8 +1,6 @@
 /**
- * Origin allow-list logic for CORS. Beyond exact matches from CORS_ORIGIN:
- *   - any *.vercel.app origin is always allowed (preview + prod deployments
- *     of the frontend) - Vercel's preview subdomain is unpredictable per
- *     branch/PR, so there's no fixed value CORS_ORIGIN could list instead.
+ * Origin allow-list logic for CORS. Trusted previews must be listed explicitly
+ * in CORS_ORIGIN; an unrelated Vercel tenant must never gain access.
  *   - a localhost/127.0.0.1 origin, on any port, is allowed ONLY when
  *     `isDevelopment` is true - staging and production must never accept a
  *     request claiming to come from a developer's local machine (WEB-013 in
@@ -16,17 +14,15 @@ export function isAllowedOrigin(
 ): boolean {
   if (!origin) return true; // non-browser callers (curl, server-to-server) send no Origin header
 
-  if (allowedOrigins.includes(origin)) return true;
-
-  let hostname: string;
+  let parsed: URL;
   try {
-    hostname = new URL(origin).hostname;
+    parsed = new URL(origin);
   } catch {
     return false;
   }
-
-  if (isDevelopment && (hostname === "localhost" || hostname === "127.0.0.1")) return true;
-  if (hostname.endsWith(".vercel.app")) return true;
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.origin !== origin) return false;
+  if (allowedOrigins.includes(origin)) return true;
+  if (isDevelopment && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) return true;
 
   return false;
 }

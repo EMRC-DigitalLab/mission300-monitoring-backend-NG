@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { StorageService } from "@/storage/storage.service";
+import { validateUpload } from "@/files/upload-validation";
 import type { UpdateBrandColorsDto } from "@/modules/administration/branding/dto/update-brand-colors.dto";
 import type { BrandFontsDto } from "@/modules/administration/branding/dto/brand-fonts.dto";
 
@@ -82,11 +83,8 @@ export class BrandingService {
     if (!file) {
       throw new BadRequestException("Select a logo image to upload.");
     }
-    if (!file.mimetype.startsWith("image/")) {
-      throw new BadRequestException("The logo must be an image file.");
-    }
-
-    const stored = await this.storage.save(LOGO_SUBDIR, file);
+    const verified = await validateUpload(file, true, 5 * 1024 * 1024);
+    const stored = await this.storage.save(LOGO_SUBDIR, verified);
     // basename(), not the raw key, so this is safe regardless of the host
     // OS's path separator (storage.save() joins with node:path.join, which
     // differs between the Linux VPS and Windows dev boxes) - the logo
@@ -109,7 +107,17 @@ export class BrandingService {
       throw new BadRequestException("Invalid logo filename.");
     }
     const buffer = await this.storage.read(`${LOGO_SUBDIR}/${filename}`);
-    return { buffer, mimeType: mimeTypeForExtension(extname(filename)) };
+    const verified = await validateUpload(
+      {
+        originalname: filename,
+        mimetype: mimeTypeForExtension(extname(filename)),
+        buffer,
+        size: buffer.length,
+      } as Express.Multer.File,
+      true,
+      5 * 1024 * 1024,
+    );
+    return { buffer, mimeType: verified.mimetype };
   }
 }
 
@@ -120,8 +128,6 @@ function mimeTypeForExtension(ext: string): string {
     case ".jpg":
     case ".jpeg":
       return "image/jpeg";
-    case ".svg":
-      return "image/svg+xml";
     case ".webp":
       return "image/webp";
     case ".gif":

@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import { AccountStatus } from "@prisma/client";
+import { AccountStatus, type Prisma } from "@prisma/client";
 import * as argon2 from "argon2";
 import { PrismaService } from "@/prisma/prisma.service";
 import { EmailService } from "@/notifications/email/email.service";
@@ -77,25 +77,34 @@ export class AuthService {
       throw new UnauthorizedException("Invalid email or password");
     }
 
-    const accessToken = await this.jwt.signAsync({ sub: user.id, tokenVersion: user.tokenVersion });
-    const refreshToken = await this.issueRefreshToken(user.id);
-
-    // Read by userAccountSchema.lastLogin in the Administration module's
-    // user table (see overview.mappers.ts) - null until this fires once.
-    void this.prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
-
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.fullName,
-        role: user.role,
-        roles: user.roles.length ? user.roles : [user.role],
-        institutionId: user.institutionId,
-      },
-    };
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the account and verify the password/session snapshot still holds.
+      // A concurrent reset/suspension must not leave a new usable refresh token.
+      const { count } = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          status: AccountStatus.ACTIVE,
+          tokenVersion: user.tokenVersion,
+          passwordHash: user.passwordHash,
+        },
+        data: { lastLogin: new Date() },
+      });
+      if (count !== 1) throw new UnauthorizedException("Invalid email or password");
+      const accessToken = await this.jwt.signAsync({ sub: user.id, tokenVersion: user.tokenVersion });
+      const refreshToken = await this.issueRefreshToken(tx, user.id);
+      return {
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.fullName,
+          role: user.role,
+          roles: user.roles.length ? user.roles : [user.role],
+          institutionId: user.institutionId,
+        },
+      };
+    });
   }
 
   /**
@@ -107,16 +116,27 @@ export class AuthService {
    */
   async refresh(rawToken: string) {
     const tokenHash = hashToken(rawToken);
-    const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: true } });
-    if (!record || record.revokedAt || record.expiresAt < new Date() || record.user.status !== AccountStatus.ACTIVE) {
-      throw new UnauthorizedException("Session expired - please log in again.");
-    }
-
-    await this.prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } });
-    const refreshToken = await this.issueRefreshToken(record.userId);
-    const accessToken = await this.jwt.signAsync({ sub: record.userId, tokenVersion: record.user.tokenVersion });
-
-    return { accessToken, refreshToken };
+    return this.prisma.$transaction(async (tx) => {
+      const record = await tx.refreshToken.findUnique({ where: { tokenHash } });
+      if (!record || record.revokedAt || record.expiresAt <= new Date()) {
+        throw new UnauthorizedException("Session expired - please log in again.");
+      }
+      // All credential changes lock the account before modifying token rows.
+      const account = await tx.user.updateMany({
+        where: { id: record.userId, status: AccountStatus.ACTIVE },
+        data: { tokenVersion: { increment: 0 } },
+      });
+      if (account.count !== 1) throw new UnauthorizedException("Session expired - please log in again.");
+      const user = await tx.user.findUniqueOrThrow({ where: { id: record.userId } });
+      const consumed = await tx.refreshToken.updateMany({
+        where: { id: record.id, revokedAt: null, expiresAt: { gt: new Date() } },
+        data: { revokedAt: new Date() },
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException("Session expired - please log in again.");
+      const refreshToken = await this.issueRefreshToken(tx, record.userId);
+      const accessToken = await this.jwt.signAsync({ sub: user.id, tokenVersion: user.tokenVersion });
+      return { accessToken, refreshToken };
+    });
   }
 
   /**
@@ -139,14 +159,13 @@ export class AuthService {
 
   /** Generates a raw refresh token, storing only its hash - see
    * createPasswordResetToken's own comment for why. */
-  private async issueRefreshToken(userId: string): Promise<string> {
+  private async issueRefreshToken(tx: Prisma.TransactionClient, userId: string): Promise<string> {
     const token = randomBytes(32).toString("hex");
-    await this.prisma.refreshToken.create({
+    await tx.refreshToken.create({
       data: { userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + this.refreshTokenTtlMs) },
     });
     return token;
   }
-
 
   /**
    * Always resolves the same way regardless of whether the account exists -
@@ -160,7 +179,13 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || user.status !== AccountStatus.ACTIVE) return;
 
-    const token = await this.createPasswordResetToken(user.id, RESET_PASSWORD_TTL_MS);
+    let token: string;
+    try {
+      token = await this.createPasswordResetToken(user.id, RESET_PASSWORD_TTL_MS);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) return; // concurrent suspension, same generic response
+      throw error;
+    }
     const resetUrl = `${process.env.FRONTEND_URL}/account/reset-password?token=${token}`;
     const { subject, html } = passwordResetEmail(
       { fullName: user.fullName, resetUrl },
@@ -178,16 +203,33 @@ export class AuthService {
     }
 
     const passwordHash = await argon2.hash(newPassword);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: record.userId },
-        data: { passwordHash, status: AccountStatus.ACTIVE },
-      }),
-      this.prisma.passwordResetToken.update({
-        where: { id: record.id },
+    await this.prisma.$transaction(async (tx) => {
+      const expectedStatus = record.purpose === "INVITE" ? AccountStatus.PENDING : AccountStatus.ACTIVE;
+      const account = await tx.user.updateMany({
+        where: { id: record.userId, status: expectedStatus, tokenVersion: record.tokenVersion },
+        data: { passwordHash, status: AccountStatus.ACTIVE, tokenVersion: { increment: 1 } },
+      });
+      if (account.count !== 1) throw new UnauthorizedException("This link is invalid or has expired.");
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: {
+          id: record.id,
+          usedAt: null,
+          expiresAt: { gt: new Date() },
+          purpose: record.purpose,
+          tokenVersion: record.tokenVersion,
+        },
         data: { usedAt: new Date() },
-      }),
-    ]);
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException("This link is invalid or has expired.");
+      await tx.passwordResetToken.updateMany({
+        where: { userId: record.userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId: record.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
   }
 
   /**
@@ -201,30 +243,49 @@ export class AuthService {
    * OLD link live for its full TTL alongside the new one, so a stale link
    * from before an admin "revoked" it by re-inviting would still work.
    */
-  async createPasswordResetToken(userId: string, ttlMs: number): Promise<string> {
+  async createPasswordResetToken(
+    userId: string,
+    ttlMs: number,
+    purpose: "RESET" | "INVITE" = "RESET",
+  ): Promise<string> {
     const token = randomBytes(32).toString("hex");
-    await this.prisma.$transaction([
-      this.prisma.passwordResetToken.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      const account = await tx.user.updateMany({
+        where: { id: userId, status: purpose === "INVITE" ? AccountStatus.PENDING : AccountStatus.ACTIVE },
+        data: { tokenVersion: { increment: 0 } },
+      });
+      if (account.count !== 1)
+        throw new UnauthorizedException("This account cannot receive a recovery link.");
+      const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      await tx.passwordResetToken.updateMany({
         where: { userId, usedAt: null },
         data: { usedAt: new Date() },
-      }),
-      this.prisma.passwordResetToken.create({
+      });
+      await tx.passwordResetToken.create({
         data: {
           userId,
           tokenHash: hashToken(token),
           expiresAt: new Date(Date.now() + ttlMs),
+          purpose,
+          tokenVersion: user.tokenVersion,
         },
-      }),
-    ]);
+      });
+    });
     return token;
   }
 
   /** Builds the invite email's set-password link - used by NotificationsConsumer. */
   async sendAccountInvitedEmail(userId: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return;
+    if (!user || user.status !== AccountStatus.PENDING) return;
 
-    const token = await this.createPasswordResetToken(userId, SET_PASSWORD_TTL_MS);
+    let token: string;
+    try {
+      token = await this.createPasswordResetToken(userId, SET_PASSWORD_TTL_MS, "INVITE");
+    } catch (error) {
+      if (error instanceof UnauthorizedException) return;
+      throw error;
+    }
     const setPasswordUrl = `${process.env.FRONTEND_URL}/account/set-password?token=${token}`;
     const { subject, html } = accountInvitedEmail(
       { fullName: user.fullName, setPasswordUrl },

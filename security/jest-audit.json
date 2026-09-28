@@ -1,0 +1,11 @@
+{
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testMatch": ["<rootDir>/security/*.audit-spec.ts"],
+  "testTimeout": 30000,
+  "transform": { "^.+\\.(t|j)s$": ["ts-jest", { "isolatedModules": true }] },
+  "moduleNameMapper": {
+    "^uuid$": "<rootDir>/test/helpers/uuid-shim.js",
+    "^@/(.*)$": "<rootDir>/src/$1"
+  }
+}

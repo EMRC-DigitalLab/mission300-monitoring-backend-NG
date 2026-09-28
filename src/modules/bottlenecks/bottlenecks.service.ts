@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
+import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
 import { BottleneckCategory, EscalationStatus, LifecycleStage, RegisterSeverity } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
@@ -276,7 +278,15 @@ export class BottlenecksService {
     };
   }
 
-  async create(dto: CreateBottleneckDto) {
+  async create(user: AuthenticatedUser, dto: CreateBottleneckDto) {
+    await assertOperationalInstitutionAccess(this.prisma, user, dto.institution);
+    if (dto.linkedRecord) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: dto.linkedRecord.trim() },
+        select: { owner: true },
+      });
+      if (project) await assertOperationalInstitutionAccess(this.prisma, user, project.owner);
+    }
     const pillar = await this.prisma.pillar.findUnique({ where: { slug: dto.pillar } });
     if (!pillar) throw new NotFoundException("Unknown pillar.");
 
@@ -302,14 +312,16 @@ export class BottlenecksService {
     };
   }
 
-  async updateStatus(id: string, dto: UpdateBottleneckStatusDto) {
+  async updateStatus(user: AuthenticatedUser, id: string, dto: UpdateBottleneckStatusDto) {
     const existing = await this.prisma.bottleneck.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("The bottleneck was not found.");
+
+    await assertOperationalInstitutionAccess(this.prisma, user, existing.institution);
 
     const statusChanged = dto.status !== existing.status;
 
     const bottleneck = await this.prisma.bottleneck.update({
-      where: { id },
+      where: { id, institution: existing.institution },
       data: {
         status: dto.status,
         followUp: dto.followUp !== undefined ? dto.followUp.trim() : existing.followUp,
@@ -345,6 +357,10 @@ export class BottlenecksService {
     });
 
     const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
-    return paginate(bottlenecks.map((b) => toBottleneckRecord(b, now)), query.page ?? 1, pageSize);
+    return paginate(
+      bottlenecks.map((b) => toBottleneckRecord(b, now)),
+      query.page ?? 1,
+      pageSize,
+    );
   }
 }

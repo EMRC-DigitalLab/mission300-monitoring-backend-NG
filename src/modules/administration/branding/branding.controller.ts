@@ -47,7 +47,12 @@ export class BrandingController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const { buffer, mimeType } = await this.branding.readLogo(filename);
-    res.set({ "Content-Type": mimeType, "Cache-Control": "public, max-age=3600" });
+    res.set({
+      "Content-Type": mimeType,
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
     return new StreamableFile(buffer);
   }
 

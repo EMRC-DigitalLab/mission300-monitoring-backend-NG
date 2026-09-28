@@ -27,7 +27,9 @@ describe("Auth (e2e)", () => {
 
   describe("POST /auth/identify", () => {
     it("returns 200 for a known active account", async () => {
-      const res = await request(app.getHttpServer()).post("/auth/identify").send({ email: ADMIN_CREDENTIALS.email });
+      const res = await request(app.getHttpServer())
+        .post("/auth/identify")
+        .send({ email: ADMIN_CREDENTIALS.email });
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ email: ADMIN_CREDENTIALS.email });
     });
@@ -40,7 +42,9 @@ describe("Auth (e2e)", () => {
     });
 
     it("returns byte-identical response shape for known vs unknown email", async () => {
-      const known = await request(app.getHttpServer()).post("/auth/identify").send({ email: ADMIN_CREDENTIALS.email });
+      const known = await request(app.getHttpServer())
+        .post("/auth/identify")
+        .send({ email: ADMIN_CREDENTIALS.email });
       const unknown = await request(app.getHttpServer())
         .post("/auth/identify")
         .send({ email: uniqueEmail("nobody") });
@@ -196,7 +200,9 @@ describe("Auth (e2e)", () => {
     });
 
     it("rejects a missing password with 400", async () => {
-      const res = await request(app.getHttpServer()).post("/auth/login").send({ email: ADMIN_CREDENTIALS.email });
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ email: ADMIN_CREDENTIALS.email });
       expect(res.status).toBe(400);
     });
 
@@ -293,7 +299,7 @@ describe("Auth (e2e)", () => {
       });
       try {
         const authService = app.get(AuthService);
-        const token = await authService.createPasswordResetToken(user.id, 60 * 60 * 1000);
+        const token = await authService.createPasswordResetToken(user.id, 60 * 60 * 1000, "INVITE");
 
         const setRes = await request(app.getHttpServer())
           .post("/auth/set-password")
@@ -326,7 +332,7 @@ describe("Auth (e2e)", () => {
       });
       try {
         const authService = app.get(AuthService);
-        const token = await authService.createPasswordResetToken(user.id, 60 * 60 * 1000);
+        const token = await authService.createPasswordResetToken(user.id, 60 * 60 * 1000, "INVITE");
         const first = await request(app.getHttpServer())
           .post("/auth/set-password")
           .send({ token, newPassword: "FirstPassword123!" });
@@ -365,7 +371,7 @@ describe("Auth (e2e)", () => {
       });
       try {
         const authService = app.get(AuthService);
-        const token = await authService.createPasswordResetToken(user.id, -1000);
+        const token = await authService.createPasswordResetToken(user.id, -1000, "INVITE");
         const res = await request(app.getHttpServer())
           .post("/auth/set-password")
           .send({ token, newPassword: "SomePassword123!" });
@@ -384,7 +390,9 @@ describe("Auth (e2e)", () => {
     });
 
     it("rejects a missing token with 400", async () => {
-      const res = await request(app.getHttpServer()).post("/auth/set-password").send({ newPassword: "SomePassword123!" });
+      const res = await request(app.getHttpServer())
+        .post("/auth/set-password")
+        .send({ newPassword: "SomePassword123!" });
       expect(res.status).toBe(400);
     });
   });
@@ -416,7 +424,9 @@ describe("Auth (e2e)", () => {
         expect(loginRes.status).toBe(200);
         const token = loginRes.body.accessToken;
 
-        const before = await request(app.getHttpServer()).get("/users/me").set("Authorization", `Bearer ${token}`);
+        const before = await request(app.getHttpServer())
+          .get("/users/me")
+          .set("Authorization", `Bearer ${token}`);
         expect(before.status).toBe(200);
 
         const logoutRes = await request(app.getHttpServer())
@@ -424,7 +434,9 @@ describe("Auth (e2e)", () => {
           .set("Authorization", `Bearer ${token}`);
         expect(logoutRes.status).toBe(200);
 
-        const after = await request(app.getHttpServer()).get("/users/me").set("Authorization", `Bearer ${token}`);
+        const after = await request(app.getHttpServer())
+          .get("/users/me")
+          .set("Authorization", `Bearer ${token}`);
         expect(after.status).toBe(401);
       } finally {
         await prisma.user.delete({ where: { id: user.id } });
@@ -471,7 +483,9 @@ describe("Auth (e2e)", () => {
 
   describe("Bearer token / guard edge cases", () => {
     it("rejects a request with a malformed Authorization header", async () => {
-      const res = await request(app.getHttpServer()).get("/users/me").set("Authorization", "NotBearer sometoken");
+      const res = await request(app.getHttpServer())
+        .get("/users/me")
+        .set("Authorization", "NotBearer sometoken");
       expect(res.status).toBe(401);
     });
 
@@ -481,14 +495,18 @@ describe("Auth (e2e)", () => {
     });
 
     it("rejects a request with a garbage JWT", async () => {
-      const res = await request(app.getHttpServer()).get("/users/me").set("Authorization", "Bearer not.a.jwt");
+      const res = await request(app.getHttpServer())
+        .get("/users/me")
+        .set("Authorization", "Bearer not.a.jwt");
       expect(res.status).toBe(401);
     });
 
     it("rejects a token for a user that no longer exists", async () => {
       const jwt = app.get(JwtService);
       const fakeToken = await jwt.signAsync({ sub: "nonexistent-user-id", tokenVersion: 0 });
-      const res = await request(app.getHttpServer()).get("/users/me").set("Authorization", `Bearer ${fakeToken}`);
+      const res = await request(app.getHttpServer())
+        .get("/users/me")
+        .set("Authorization", `Bearer ${fakeToken}`);
       expect(res.status).toBe(401);
     });
 
@@ -496,7 +514,9 @@ describe("Auth (e2e)", () => {
       const user = await prisma.user.findUniqueOrThrow({ where: { email: REVIEWER_CREDENTIALS.email } });
       const jwt = app.get(JwtService);
       const staleToken = await jwt.signAsync({ sub: user.id, tokenVersion: user.tokenVersion + 999 });
-      const res = await request(app.getHttpServer()).get("/users/me").set("Authorization", `Bearer ${staleToken}`);
+      const res = await request(app.getHttpServer())
+        .get("/users/me")
+        .set("Authorization", `Bearer ${staleToken}`);
       expect(res.status).toBe(401);
     });
 
@@ -521,7 +541,9 @@ describe("Auth (e2e)", () => {
       const server = throttledApp.getHttpServer();
       let sawTooManyRequests = false;
       for (let i = 0; i < 15; i++) {
-        const res = await request(server).post("/auth/identify").send({ email: uniqueEmail(`throttle-${i}`) });
+        const res = await request(server)
+          .post("/auth/identify")
+          .send({ email: uniqueEmail(`throttle-${i}`) });
         if (res.status === 429) {
           sawTooManyRequests = true;
           break;

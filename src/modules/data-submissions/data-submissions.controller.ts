@@ -75,22 +75,24 @@ export class DataSubmissionsController {
   }
 
   @Get("obligations/:id/entry")
-  getEntryDefinition(@Param("id") id: string) {
-    return this.dataSubmissions.getManualEntryDefinition(id);
+  getEntryDefinition(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.dataSubmissions.getManualEntryDefinition(user, id);
   }
 
   @Post("obligations/:id/entry")
+  @Roles("SYSTEM_ADMINISTRATOR", "INSTITUTIONAL_DATA_PROVIDER")
   @AuditAction("submission.manual_entry_saved")
   saveEntry(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: ManualEntryDto) {
     return this.dataSubmissions.saveManualEntry(user, id, dto);
   }
 
   @Get("obligations/:id/upload")
-  getUploadDefinition(@Param("id") id: string) {
-    return this.dataSubmissions.getUploadDefinition(id);
+  getUploadDefinition(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.dataSubmissions.getUploadDefinition(user, id);
   }
 
   @Post("obligations/:id/upload")
+  @Roles("SYSTEM_ADMINISTRATOR", "INSTITUTIONAL_DATA_PROVIDER")
   @ApiConsumes("multipart/form-data")
   @AuditAction("submission.uploaded")
   @UseInterceptors(
@@ -98,7 +100,10 @@ export class DataSubmissionsController {
       limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
       fileFilter: (_req, file, callback) => {
         const extension = file.originalname.slice(file.originalname.lastIndexOf(".")).toLowerCase();
-        if (!ALLOWED_UPLOAD_EXTENSIONS.includes(extension) || !ALLOWED_UPLOAD_MIME_TYPES.includes(file.mimetype)) {
+        if (
+          !ALLOWED_UPLOAD_EXTENSIONS.includes(extension) ||
+          !ALLOWED_UPLOAD_MIME_TYPES.includes(file.mimetype)
+        ) {
           callback(new BadRequestException("Only .xlsx or .csv files are accepted."), false);
           return;
         }

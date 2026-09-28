@@ -244,12 +244,11 @@ databases internally-only.
 No domain is wired up yet, so two things are intentionally permissive right
 now and **must be tightened before this is a real production launch**:
 
-- **`CORS_ORIGIN` is blank for both environments**, which makes the API
-  reflect whatever `Origin` header it receives (see `src/main.ts`) - i.e. it
-  accepts requests from any frontend URL, any port, including arbitrary
-  Vercel preview deployments. Fine while there's no fixed frontend URL yet;
-  a real security hole once this API is handling real data publicly. Set
-  `CORS_ORIGIN` to the actual frontend origin(s) once known.
+- **Set `CORS_ORIGIN` for each environment** to its exact trusted frontend
+  origins, comma-separated (for example `https://m300.energymrc.ng`). An
+  empty list rejects browser origins outside local development. Vercel
+  previews need their exact origin listed; unrelated Vercel tenants are
+  rejected. Localhost is additionally permitted only in development.
 - **The deploy health check runs from inside the VPS** (`curl
 127.0.0.1:<port>/health` over the same SSH session), not from a public
   URL, because the API is intentionally loopback-only until a domain +

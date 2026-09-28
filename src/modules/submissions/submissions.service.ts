@@ -4,7 +4,7 @@ import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
 import { SecuritySettingsService } from "@/modules/administration/security/security-settings.service";
 import { assertValidTransition } from "@/modules/submissions/submissions.state-machine";
-import { scopeInstitutionFilter } from "@/common/guards/institution-scope.guard";
+import { scopeInstitutionFilter, assertInstitutionMembership } from "@/common/guards/institution-scope.guard";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { CreateSubmissionDto } from "@/modules/submissions/dto/create-submission.dto";
 import type { RecordDecisionDto } from "@/modules/submissions/dto/record-decision.dto";
@@ -70,8 +70,8 @@ export class SubmissionsService {
     });
   }
 
-  async startReview(submissionId: string) {
-    const submission = await this.findById(submissionId);
+  async startReview(user: AuthenticatedUser, submissionId: string) {
+    const submission = await this.findOwned(user, submissionId);
     assertValidTransition(submission.status, SubmissionStatus.UNDER_REVIEW);
 
     return this.prisma.submission.update({
@@ -88,10 +88,11 @@ export class SubmissionsService {
    */
   async recordDecision(user: AuthenticatedUser, submissionId: string, dto: RecordDecisionDto) {
     const submission = await this.prisma.submission.findUnique({
-      where: { id: submissionId },
+      where: { id: submissionId, ...scopeInstitutionFilter(user) },
       include: { items: true },
     });
     if (!submission) throw new NotFoundException("Submission not found");
+    assertInstitutionMembership(user, submission.institutionId);
     if (submission.submittedById === user.id && !(await this.securitySettings.get()).allowSelfReview) {
       throw new ForbiddenException("Self-review is disabled by the system administrator");
     }

@@ -89,7 +89,13 @@ export class DataSubmissionsService {
       this.prisma.dataset.findMany({ orderBy: { name: "asc" } }),
       this.prisma.obligation.findMany({ select: { reportingPeriod: true }, distinct: ["reportingPeriod"] }),
       this.prisma.user.findMany({
-        where: { OR: [{ role: { in: ["DATA_REVIEWER", "VALIDATOR"] } }, { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } }], status: "ACTIVE" },
+        where: {
+          OR: [
+            { role: { in: ["DATA_REVIEWER", "VALIDATOR"] } },
+            { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } },
+          ],
+          status: "ACTIVE",
+        },
         orderBy: { fullName: "asc" },
       }),
     ]);
@@ -270,13 +276,15 @@ export class DataSubmissionsService {
     return paginate(kpis.map(toDataGap), query.page ?? 1, pageSize);
   }
 
-  async getManualEntryDefinition(obligationId: string) {
+  async getManualEntryDefinition(user: AuthenticatedUser, obligationId: string) {
     const obligation = await this.findObligationWithFields(obligationId);
+    assertInstitutionMembership(user, obligation.institutionId);
     return toManualEntryDefinition(obligation);
   }
 
-  async getUploadDefinition(obligationId: string) {
+  async getUploadDefinition(user: AuthenticatedUser, obligationId: string) {
     const obligation = await this.findObligationWithFields(obligationId);
+    assertInstitutionMembership(user, obligation.institutionId);
     return toUploadDefinition(obligation);
   }
 
@@ -343,7 +351,12 @@ export class DataSubmissionsService {
 
     let rows: { period: string; values: Record<string, string>; institutionName?: string }[];
     try {
-      rows = await parseSubmissionFile(file.buffer, file.originalname, obligation.dataset, obligation.dataset.fields);
+      rows = await parseSubmissionFile(
+        file.buffer,
+        file.originalname,
+        obligation.dataset,
+        obligation.dataset.fields,
+      );
     } catch {
       throw new BadRequestException("Could not read the uploaded file - use the provided template.");
     }
@@ -352,7 +365,12 @@ export class DataSubmissionsService {
     }
 
     const consolidated = obligation.dataset.submissionMode === "NERC_CONSOLIDATED";
-    const resolved: { period: string; values: Record<string, string>; obligationId: string; institutionId: string }[] = [];
+    const resolved: {
+      period: string;
+      values: Record<string, string>;
+      obligationId: string;
+      institutionId: string;
+    }[] = [];
     const unmatchedPeriods: string[] = [];
 
     if (consolidated) {
@@ -367,7 +385,9 @@ export class DataSubmissionsService {
         );
       }
       if (rows.some((row) => !row.period)) {
-        throw new BadRequestException("Every row must have Year (and Month_Name, for monthly datasets) filled in.");
+        throw new BadRequestException(
+          "Every row must have Year (and Month_Name, for monthly datasets) filled in.",
+        );
       }
 
       for (const row of rows) {
@@ -465,7 +485,9 @@ export class DataSubmissionsService {
 
     const primary = created.find((entry) => entry.submissionId) ?? created[0];
     const skippedNote =
-      unmatchedPeriods.length > 0 ? ` ${unmatchedPeriods.length} row(s) were skipped (no matching obligation for: ${unmatchedPeriods.join(", ")}).` : "";
+      unmatchedPeriods.length > 0
+        ? ` ${unmatchedPeriods.length} row(s) were skipped (no matching obligation for: ${unmatchedPeriods.join(", ")}).`
+        : "";
 
     return {
       submissionId: primary.submissionId,
@@ -476,7 +498,9 @@ export class DataSubmissionsService {
           ? "Upload received. Backend validation passed and the submission is ready for review."
           : `Upload received. ${created.length} submissions were created from this file and are ready for review.${skippedNote}`,
       nextUrl:
-        created.length === 1 ? `/data-submissions/validation/${primary.submissionId}` : "/data-submissions/validation",
+        created.length === 1
+          ? `/data-submissions/validation/${primary.submissionId}`
+          : "/data-submissions/validation",
     };
   }
 
@@ -543,10 +567,11 @@ export class DataSubmissionsService {
    */
   async recordDecision(user: AuthenticatedUser, id: string, dto: RecordValidationDecisionDto) {
     const submission = await this.prisma.submission.findUnique({
-      where: { id },
+      where: { id, ...scopeInstitutionFilter(user) },
       include: { items: { include: { kpiDefinition: true } } },
     });
     if (!submission) throw new NotFoundException("Submission not found.");
+    assertInstitutionMembership(user, submission.institutionId);
     if (submission.submittedById === user.id && !(await this.securitySettings.get()).allowSelfReview) {
       throw new ForbiddenException("Self-review is disabled by the system administrator.");
     }
@@ -560,7 +585,7 @@ export class DataSubmissionsService {
 
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.submission.updateMany({
-        where: { id, status: "PENDING" },
+        where: { id, status: "PENDING", ...scopeInstitutionFilter(user) },
         data: { status: targetStatus },
       });
       if (count !== 1) {
@@ -640,7 +665,10 @@ export class DataSubmissionsService {
       try {
         succeeded.push(await this.recordDecision(user, id, dto));
       } catch (error) {
-        failed.push({ submissionId: id, message: error instanceof Error ? error.message : "Decision failed." });
+        failed.push({
+          submissionId: id,
+          message: error instanceof Error ? error.message : "Decision failed.",
+        });
       }
     }
 
@@ -668,7 +696,10 @@ export class DataSubmissionsService {
     const { allowSelfReview } = await this.securitySettings.get();
     const reviewers = await this.prisma.user.findMany({
       where: {
-        OR: [{ role: { in: ["DATA_REVIEWER", "VALIDATOR"] } }, { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } }],
+        OR: [
+          { role: { in: ["DATA_REVIEWER", "VALIDATOR"] } },
+          { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } },
+        ],
         status: "ACTIVE",
         ...(allowSelfReview ? {} : { id: { not: submitterId } }),
       },
@@ -706,7 +737,10 @@ export class DataSubmissionsService {
       ...scopeInstitutionFilter(user),
     };
 
-    const groups = await this.prisma.obligation.groupBy({ by: ["institutionId", "datasetId"], where: scopeWhere });
+    const groups = await this.prisma.obligation.groupBy({
+      by: ["institutionId", "datasetId"],
+      where: scopeWhere,
+    });
     if (groups.length === 0) return;
 
     const now = new Date();
@@ -715,7 +749,11 @@ export class DataSubmissionsService {
       if (!dataset) continue;
 
       const lastAccepted = await this.prisma.obligation.findFirst({
-        where: { institutionId: group.institutionId, datasetId: group.datasetId, acceptedSubmissionId: { not: null } },
+        where: {
+          institutionId: group.institutionId,
+          datasetId: group.datasetId,
+          acceptedSubmissionId: { not: null },
+        },
         orderBy: { dueDate: "desc" },
       });
       if (!lastAccepted) continue;
@@ -784,8 +822,18 @@ function daysUntil(isoDate: string): number {
 }
 
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 /**
@@ -800,7 +848,8 @@ function dueDateForPeriod(frequency: string, period: string): Date {
     const [monthName, yearText] = period.split(" ");
     const monthIndex = MONTH_NAMES.indexOf(monthName);
     const year = Number(yearText);
-    if (monthIndex === -1 || Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+    if (monthIndex === -1 || Number.isNaN(year))
+      throw new BadRequestException(`Unrecognized period "${period}".`);
     return new Date(Date.UTC(year, monthIndex + 1, 15));
   }
   if (frequency === "Quarterly") {
@@ -821,7 +870,8 @@ function periodEndDate(frequency: string, period: string): Date {
     const [monthName, yearText] = period.split(" ");
     const monthIndex = MONTH_NAMES.indexOf(monthName);
     const year = Number(yearText);
-    if (monthIndex === -1 || Number.isNaN(year)) throw new BadRequestException(`Unrecognized period "${period}".`);
+    if (monthIndex === -1 || Number.isNaN(year))
+      throw new BadRequestException(`Unrecognized period "${period}".`);
     return new Date(Date.UTC(year, monthIndex + 1, 0));
   }
   if (frequency === "Quarterly") {
@@ -839,7 +889,8 @@ function periodEndDate(frequency: string, period: string): Date {
 /** The reporting period immediately following the given one, same cadence. */
 function nextPeriod(frequency: string, period: string): string {
   const dayAfterEnd = new Date(periodEndDate(frequency, period).getTime() + 24 * 60 * 60 * 1000);
-  if (frequency === "Monthly") return `${MONTH_NAMES[dayAfterEnd.getUTCMonth()]} ${dayAfterEnd.getUTCFullYear()}`;
+  if (frequency === "Monthly")
+    return `${MONTH_NAMES[dayAfterEnd.getUTCMonth()]} ${dayAfterEnd.getUTCFullYear()}`;
   if (frequency === "Quarterly") {
     const quarter = Math.floor(dayAfterEnd.getUTCMonth() / 3) + 1;
     return `Q${quarter} ${dayAfterEnd.getUTCFullYear()}`;
