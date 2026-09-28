@@ -149,6 +149,13 @@ jobs:
                 docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
                   --env-file staging/.env exec -T api node prisma/seed-reference-data.mjs \
                   || { echo "Reference data load failed"; exit 1; }
+
+                # The load-once reference seed skips every ingest once any KPI
+                # values exist. Fill this later-added headline only when it is
+                # still empty; preserve any values already reported or edited.
+                docker compose -p m300-backend-staging -f docker/docker-compose.prod.yml \
+                  --env-file staging/.env exec -T api node prisma/hotfix-p2-025.js --if-missing \
+                  || { echo "Clean cooking headline backfill failed"; exit 1; }
                 exit 0
               fi
               echo "Not ready yet (attempt $attempt/30, HTTP $status). Retrying in 5s..."

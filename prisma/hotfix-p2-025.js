@@ -6,6 +6,8 @@
 // inlined so no other files need to be copied in.
 //
 // Run with: DATABASE_URL=... node hotfix-p2-025.js
+// Pass --if-missing during staging deploys. It only applies the backfill when
+// this KPI has no values, so later deploys preserve values edited in the app.
 const { PrismaPg } = require("@prisma/adapter-pg");
 const { PrismaClient } = require("@prisma/client");
 
@@ -64,6 +66,18 @@ function approvedAtFor(period) {
 
 async function main() {
   const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL) });
+
+  if (process.argv.includes("--if-missing")) {
+    const existingKpi = await prisma.kpiDefinition.findUnique({ where: { code: ENTRY.code } });
+    if (existingKpi) {
+      const existingValues = await prisma.kpiValue.count({ where: { kpiDefinitionId: existingKpi.id } });
+      if (existingValues > 0) {
+        console.log(`${ENTRY.code} already has ${existingValues} value(s); preserving them.`);
+        await prisma.$disconnect();
+        return;
+      }
+    }
+  }
 
   const pillar = await prisma.pillar.findUnique({ where: { slug: ENTRY.pillarSlug } });
   if (!pillar) throw new Error(`Pillar "${ENTRY.pillarSlug}" not found.`);
