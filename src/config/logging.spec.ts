@@ -83,15 +83,17 @@ describe("Credential-safe HTTP and audit logging", () => {
     const result = {
       id: "subscription",
       secret: "one-time-secret",
+      url: "https://receiver.example.test/events?apiKey=fake-url-secret#private",
       nested: [{ tokenHash: "hash", accessToken: "token" }],
     };
     expect(await lastValueFrom(interceptor.intercept(context, { handle: () => of(result) }))).toBe(result);
     expect(JSON.stringify(create.mock.calls)).not.toContain("one-time-secret");
+    expect(JSON.stringify(create.mock.calls)).not.toContain("fake-url-secret");
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           entityId: "subscription",
-          after: { id: "subscription", nested: [{}] },
+          after: { id: "subscription", url: "https://receiver.example.test/events", nested: [{}] },
         }),
       }),
     );

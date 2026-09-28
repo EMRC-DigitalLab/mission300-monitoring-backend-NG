@@ -14,7 +14,7 @@ The original [assessment](REPORT.md) describes the pre-fix commit. This document
 | 4 | F08 | Non-public/special IP ranges rejected; all DNS answers checked; validated IP pinned to the connection; original Host/TLS identity retained; redirects never followed; bounded DNS/network waits. |
 | 5 | F09 | Exact configured CORS origins; no Vercel tenant wildcard; malformed origins rejected; additional localhost permission limited to development. |
 | 6 | F10 | File bytes and extension/MIME pair verified before persistence; PDF/image signatures, bounded DOCX/XLSX containers and CSV structure checked; executable SVG and legacy DOC/XLS uploads rejected. |
-| 7 | F11 | HTTP log metadata allowlist removes credential headers, bodies, query values and response cookies; recursive audit redaction; recovery/invitation links never logged by the email fallback. |
+| 7 | F11 | HTTP log metadata allowlist removes credential headers, bodies, query values and response cookies; recursive audit redaction also strips credentials/query strings from URL fields; recovery/invitation links never logged by the email fallback. |
 
 ## Authorization changes
 

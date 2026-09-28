@@ -52,7 +52,23 @@ const SENSITIVE_KEYS = new Set([
   "reseturl",
   "setpasswordurl",
   "apikey",
+  "signingsecret",
+  "databaseurl",
+  "connectionstring",
 ]);
+
+function auditLink(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value.split(/[?#]/)[0]!;
+  }
+}
 
 /** Audit payloads may contain arbitrarily nested objects and arrays. */
 export function redactSecurityData(value: unknown): unknown {
@@ -62,6 +78,11 @@ export function redactSecurityData(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .filter(([key]) => !SENSITIVE_KEYS.has(key.replace(/[-_]/g, "").toLowerCase()))
-      .map(([key, nested]) => [key, redactSecurityData(nested)]),
+      .map(([key, nested]) => [
+        key,
+        typeof nested === "string" && /(?:url|uri|link)$/i.test(key)
+          ? auditLink(nested)
+          : redactSecurityData(nested),
+      ]),
   );
 }
