@@ -26,9 +26,9 @@ import { PrismaClient } from "@prisma/client";
  * Deliberately NOT filled, because no source here states them without an
  * assumption that would amount to inventing a figure:
  * - M300-P4-002 / M300-P4-003 (USD Million): the REA register's capital
- *   figures are recorded with "Currency not stated", and are "committed" /
- *   "disbursed" rather than "mobilized". Assigning them to a USD-million
- *   KPI would assume both the currency and the scale.
+ *   figures (now confirmed in USD) are "committed" / "disbursed" rather
+ *   than "mobilized" or specifically long-term local-currency capital.
+ *   Currency confirmation alone does not make these equivalent KPIs.
  * - M300-P1-012 (MW): the NISO workbook carries transmission line length
  *   (km) and substation capacity (MVA), neither of which is transfer
  *   capacity in MW.

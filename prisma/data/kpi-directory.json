@@ -2740,7 +2740,7 @@
   {
     "code": "M300-P4-011",
     "name": "Private capital committed since January 2025",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2769,7 +2769,7 @@
   {
     "code": "M300-P4-012",
     "name": "Private capital deployed or disbursed since January 2025",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2798,7 +2798,7 @@
   {
     "code": "M300-PX-008",
     "name": "Total approved programme financing",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2827,7 +2827,7 @@
   {
     "code": "M300-PX-009",
     "name": "Grant amount",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2856,7 +2856,7 @@
   {
     "code": "M300-PX-010",
     "name": "Loan amount",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2885,7 +2885,7 @@
   {
     "code": "M300-PX-011",
     "name": "Private co-financing",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2914,7 +2914,7 @@
   {
     "code": "M300-PX-012",
     "name": "Amount committed",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
@@ -2943,7 +2943,7 @@
   {
     "code": "M300-PX-013",
     "name": "Amount disbursed and expenditure to date",
-    "unit": "Currency not stated",
+    "unit": "USD",
     "pillarSlug": "private-sector-participation",
     "isActive": true,
     "category": "Financial",
