@@ -323,6 +323,16 @@ export class BottlenecksService {
     return { record: toBottleneckRecord(bottleneck, new Date()) };
   }
 
+  async delete(id: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.bottleneck.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException("The bottleneck was not found.");
+      await tx.escalation.deleteMany({ where: { bottleneckId: id } });
+      // Status history is removed by its foreign key's ON DELETE CASCADE.
+      await tx.bottleneck.delete({ where: { id } });
+    });
+  }
+
   async getByProject(projectId: string, query: BottlenecksQueryDto) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException("The project was not found.");
