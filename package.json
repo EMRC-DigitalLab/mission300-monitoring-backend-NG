@@ -24,7 +24,7 @@
     "check": "pnpm verify && pnpm build",
     "docker:dev": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch",
     "docker:kestra": "docker compose -p m300-ng-backend -f docker/docker-compose.yml -f docker/docker-compose.override.yml --env-file .env.development --profile kestra up --detach kestra",
-    "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch --detach",
+    "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env.development up --watch",
     "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env.development down",
     "docker:logs": "docker compose -f docker/docker-compose.yml --env-file .env.development logs --follow api",
     "docker:ps": "docker compose -f docker/docker-compose.yml --env-file .env.development ps",
@@ -40,7 +40,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "prisma:seed:reference": "node prisma/seed-reference-data.mjs",
+    "prisma:seed:reference": "node prisma/seed-reference-data.mjs --force",
     "prepare": "husky || true"
   },
   "dependencies": {
