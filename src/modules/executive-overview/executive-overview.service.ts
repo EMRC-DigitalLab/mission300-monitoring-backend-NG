@@ -63,19 +63,35 @@ type KpiProfile = ReturnType<typeof toKpiProfile>;
 export class ExecutiveOverviewService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async loadProfile(code: string, asOfPeriod?: [number, number]): Promise<KpiProfile> {
-    const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code }, include: KPI_PROFILE_INCLUDE });
-    if (!kpi) {
-      throw new NotFoundException(
-        `Executive Overview KPI "${code}" is not configured - seed or create it via KPI Explorer first.`,
-      );
+  private async loadProfiles(codes: readonly string[], asOfPeriod?: [number, number]): Promise<KpiProfile[]> {
+    const definitions = await this.prisma.kpiDefinition.findMany({
+      where: { code: { in: [...codes] } },
+      include: KPI_PROFILE_INCLUDE,
+    });
+    const definitionsByCode = new Map(definitions.map((definition) => [definition.code, definition]));
+    for (const code of codes) {
+      if (!definitionsByCode.has(code)) {
+        throw new NotFoundException(
+          `Executive Overview KPI "${code}" is not configured - seed or create it via KPI Explorer first.`,
+        );
+      }
     }
+
     const values = await this.prisma.kpiValue.findMany({
-      where: { kpiDefinitionId: kpi.id },
+      where: { kpiDefinitionId: { in: definitions.map((definition) => definition.id) } },
       include: VALUE_INCLUDE,
     });
-    const scopedValues = asOfPeriod ? values.filter((v) => isAtOrBeforePeriod(v.period, asOfPeriod)) : values;
-    return toKpiProfile(kpi, scopedValues);
+    const valuesByDefinition = new Map<string, typeof values>();
+    for (const value of values) {
+      if (asOfPeriod && !isAtOrBeforePeriod(value.period, asOfPeriod)) continue;
+      const group = valuesByDefinition.get(value.kpiDefinitionId) ?? [];
+      group.push(value);
+      valuesByDefinition.set(value.kpiDefinitionId, group);
+    }
+    return codes.map((code) => {
+      const definition = definitionsByCode.get(code)!;
+      return toKpiProfile(definition, valuesByDefinition.get(definition.id) ?? []);
+    });
   }
 
   async getOverview(query: ExecutiveOverviewQueryDto) {
@@ -105,7 +121,7 @@ export class ExecutiveOverviewService {
       remittanceProfile,
       shortfallProfile,
       capitalProfile,
-    ] = await Promise.all([
+    ] = await this.loadProfiles([
       // "People Connected to Electricity (Canonical)" - currently a small
       // pilot ledger, not yet at national scale (see the real frontend
       // mock's own comment, mocks/data/executive-overview.ts) - this card
@@ -113,27 +129,27 @@ export class ExecutiveOverviewService {
       // real target is set on this KPI via the normal KPI Explorer edit
       // screen, rather than fabricating the national composite figure the
       // mock hardcodes with no real backing data.
-      this.loadProfile("M300-P2-024", periodFilter),
-      this.loadProfile("M300-PX-001", periodFilter),
-      this.loadProfile("M300-P1-016", periodFilter),
+      "M300-P2-024",
+      "M300-PX-001",
+      "M300-P1-016",
       // "Clean Cooking - Verified Beneficiary Households (Canonical)" - same
       // pilot-ledger caveat as M300-P2-024 above.
-      this.loadProfile("M300-P2-025", periodFilter),
-      this.loadProfile("M300-P2-001", periodFilter),
-      this.loadProfile("M300-P2-003", periodFilter),
-      this.loadProfile("M300-P2-006", periodFilter),
+      "M300-P2-025",
+      "M300-P2-001",
+      "M300-P2-003",
+      "M300-P2-006",
       // Access-delivery channel row for clean cooking - "Improved Cookstoves
       // Distributed", distinct from the M300-P2-025 pilot-ledger headline
       // card above (matches ACCESS_CHANNEL_KPI_IDS in the real frontend
       // mock exactly - the two sections deliberately use different KPIs).
-      this.loadProfile("M300-P2-011", periodFilter),
-      this.loadProfile("M300-P1-004", periodFilter),
-      this.loadProfile("M300-P3-004", periodFilter),
-      this.loadProfile("M300-P3-006", periodFilter),
-      this.loadProfile("M300-P3-009", periodFilter),
-      this.loadProfile("M300-P3-010", periodFilter),
-      this.loadProfile("M300-P4-002", periodFilter),
-    ]);
+      "M300-P2-011",
+      "M300-P1-004",
+      "M300-P3-004",
+      "M300-P3-006",
+      "M300-P3-009",
+      "M300-P3-010",
+      "M300-P4-002",
+    ], periodFilter);
 
     const headlineCards = {
       peopleWithElectricityAccess: this.buildCompactOutcomeCard(
