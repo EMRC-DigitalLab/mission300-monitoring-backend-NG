@@ -50,6 +50,19 @@ export function formatPeriodLabel(period: string): string {
 
 const HISTORY_WINDOW = 4;
 
+/** Formats a trend delta for display - compact (1.2M/45.3K) once the
+ * magnitude is large (people counts, USD Million figures, etc.), plain
+ * locale-formatted otherwise (percentage-point changes stay as e.g.
+ * "0.83", never compacted). Carries its own sign via the value itself
+ * (Math.abs never applied), so the caller's separate "+" prefix for a
+ * positive change is the only other sign in the final label. */
+function formatTrendMagnitude(value: number): string {
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (magnitude >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
 function buildTrend(
   currentValue: number,
   previousValue: number,
@@ -62,7 +75,7 @@ function buildTrend(
   const suffix = unit === "%" ? " pp" : unit ? ` ${unit}` : "";
   return {
     change,
-    label: `${sign}${change}${suffix} vs ${formatPeriodLabel(previousPeriod)}`,
+    label: `${sign}${formatTrendMagnitude(change)}${suffix} vs ${formatPeriodLabel(previousPeriod)}`,
     direction,
   };
 }
