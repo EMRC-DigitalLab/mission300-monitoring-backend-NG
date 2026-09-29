@@ -24,11 +24,21 @@ const REFRESH_COOKIE_PATH = "/auth";
 // roughly track it, not silently outlive or undercut the real TTL.
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+// The frontend and this API are deployed on entirely different registrable
+// domains (e.g. m300.energymrc.ng vs raven-emrc.com), not same-site
+// subdomains - a genuinely cross-site setup. `sameSite: "lax"` blocks a
+// cross-site cookie from being attached to a subresource request like
+// fetch()'s POST /auth/refresh (Lax only allows it on a top-level GET
+// navigation), so the refresh call always reached the server with no
+// cookie at all and silently failed every time. "none" is required for a
+// cross-site cookie to be sent on fetch/XHR - it in turn requires
+// `secure: true`, already the case outside development.
 function setRefreshCookie(res: Response, token: string) {
+  const isDevelopment = process.env.NODE_ENV === "development";
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV !== "development",
-    sameSite: "lax",
+    secure: !isDevelopment,
+    sameSite: isDevelopment ? "lax" : "none",
     path: REFRESH_COOKIE_PATH,
     maxAge: REFRESH_COOKIE_MAX_AGE_MS,
   });
