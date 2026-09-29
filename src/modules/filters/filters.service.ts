@@ -38,10 +38,20 @@ export class FiltersService {
     ].sort((a, b) => a.localeCompare(b));
 
     return {
-      reportingPeriods: [...sortPeriodsDescending(periods.map((p) => p.period)).map((period) => ({
-        value: period,
-        label: formatPeriodLabel(period),
-      })), { value: "custom", label: "Custom range…" }],
+      // Both an annual period ("2025") and its own quarters ("q1-2025"..
+      // "q4-2025") can be real, distinct data points from different KPI
+      // sources at once - e.g. a Compact-outcome KPI's yearly figure
+      // alongside a NISO/NERC operational KPI's quarterly one for the same
+      // year. Both stay in the list (removing either would hide real data),
+      // but the label spells out "Full Year" so "2025" next to "Q4 2025"
+      // reads as two different things, not a mistake.
+      reportingPeriods: [
+        ...sortPeriodsDescending(periods.map((p) => p.period)).map((period) => ({
+          value: period,
+          label: /^\d{4}$/.test(period.trim()) ? `${period.trim()} (Full Year)` : formatPeriodLabel(period),
+        })),
+        { value: "custom", label: "Custom range…" },
+      ],
       pillars: withAll(
         "pillars",
         pillars.map((p) => ({ value: p.slug, label: p.name })),
