@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { LearningLogService } from "@/modules/learning-log/learning-log.service";
 import { LearningLogQueryDto } from "@/modules/learning-log/dto/learning-log-query.dto";
 import { CreateLearningLogEntryDto } from "@/modules/learning-log/dto/create-learning-log-entry.dto";
+import { UpdateLearningLogEntryDto } from "@/modules/learning-log/dto/update-learning-log-entry.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
@@ -28,5 +29,20 @@ export class LearningLogController {
   @AuditAction("learning_log.entry_created")
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateLearningLogEntryDto) {
     return this.learningLog.create(user, dto);
+  }
+
+  @Patch(":id")
+  @Roles(...OPERATIONAL_MANAGERS)
+  @AuditAction("learning_log.entry_updated")
+  update(@Param("id") id: string, @Body() dto: UpdateLearningLogEntryDto) {
+    return this.learningLog.update(id, dto);
+  }
+
+  @Delete(":id")
+  @HttpCode(200)
+  @Roles(...OPERATIONAL_MANAGERS)
+  @AuditAction("learning_log.entry_deleted")
+  delete(@Param("id") id: string) {
+    return this.learningLog.delete(id);
   }
 }
