@@ -16,7 +16,6 @@ import { AuditLogInterceptor } from "@/common/interceptors/audit-log.interceptor
 import { AuthModule } from "@/modules/auth/auth.module";
 import { HealthModule } from "@/modules/health/health.module";
 import { InstitutionsModule } from "@/modules/institutions/institutions.module";
-import { KpisModule } from "@/modules/kpis/kpis.module";
 import { ProgramsModule } from "@/modules/programs/programs.module";
 import { FiltersModule } from "@/modules/filters/filters.module";
 import { BottlenecksModule } from "@/modules/bottlenecks/bottlenecks.module";
@@ -57,7 +56,6 @@ import { PublicOverviewModule } from "@/modules/public-overview/public-overview.
     AuthModule,
     HealthModule,
     InstitutionsModule,
-    KpisModule,
     ProgramsModule,
     FiltersModule,
     BottlenecksModule,

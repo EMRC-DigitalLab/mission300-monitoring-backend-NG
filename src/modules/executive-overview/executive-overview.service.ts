@@ -81,6 +81,8 @@ export class ExecutiveOverviewService {
   async getOverview(query: ExecutiveOverviewQueryDto) {
     const pillarFilter = query.pillar ?? "all";
     const institutionFilter = query.institution ?? "all";
+    const priorityFilter = query.priority ?? "all";
+    const distributionCompanyFilter = query.distributionCompany ?? "all";
     // "all" (no selection) and an unparseable value (e.g. the frontend's
     // "custom" sentinel, which never carries real from/to dates - see
     // GlobalFilterBar's own comment) both mean "no period filter", not
@@ -180,7 +182,12 @@ export class ExecutiveOverviewService {
         ? nationalPerformanceAll
         : nationalPerformanceAll.filter((m) => m.pillar === pillarFilter);
 
-    const deliveryStatus = await this.buildDeliveryStatus(pillarFilter, institutionFilter);
+    const deliveryStatus = await this.buildDeliveryStatus(
+      pillarFilter,
+      institutionFilter,
+      priorityFilter,
+      distributionCompanyFilter,
+    );
 
     return {
       lastUpdated: new Date().toISOString(),
@@ -374,7 +381,12 @@ export class ExecutiveOverviewService {
     ];
   }
 
-  private async buildDeliveryStatus(pillarFilter: string, institutionFilter: string) {
+  private async buildDeliveryStatus(
+    pillarFilter: string,
+    institutionFilter: string,
+    priorityFilter: string,
+    distributionCompanyFilter: string,
+  ) {
     const now = new Date();
     const [projects, bottlenecks] = await Promise.all([
       this.prisma.project.findMany({
@@ -390,12 +402,24 @@ export class ExecutiveOverviewService {
     const filteredProjects = projects.filter(
       (p) =>
         (pillarFilter === "all" || p.pillar.slug === pillarFilter) &&
-        (institutionFilter === "all" || p.owner === institutionFilter),
+        (institutionFilter === "all" || p.owner === institutionFilter) &&
+        // "Priority actions" - the workbook's own register-priority concept,
+        // held on the parent Programme (Project has no priority field of
+        // its own). "Complete portfolio" (the "all" value) means no filter.
+        (priorityFilter === "all" || p.programme.priority === "PRIORITY") &&
+        // Same mechanism as institutionFilter above, on the same field
+        // (Project.owner) - a second, independent param rather than
+        // reusing institutionFilter, because the real contract exposes
+        // them as two separate controls (see GlobalFilterBar).
+        (distributionCompanyFilter === "all" || p.owner === distributionCompanyFilter),
     );
     const filteredBottlenecks = bottlenecks.filter(
       (b) =>
         (pillarFilter === "all" || b.pillar.slug === pillarFilter) &&
-        (institutionFilter === "all" || b.institution === institutionFilter),
+        (institutionFilter === "all" || b.institution === institutionFilter) &&
+        // Bottlenecks have no parent Programme/priority concept of their
+        // own - priorityFilter narrows the project list only.
+        (distributionCompanyFilter === "all" || b.institution === distributionCompanyFilter),
     );
 
     const ongoingProjects = filteredProjects.map((p) => ({

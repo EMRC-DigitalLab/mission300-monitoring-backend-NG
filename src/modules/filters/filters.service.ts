@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
 import { formatPeriodLabel } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import { DISCO_CANONICAL_NAMES } from "@/modules/data-submissions/disco-institutions";
 
 // Matches dashboardFilterOptionsSchema (m300-frontend/src/api/schemas/
 // filters.ts) exactly - the application-wide filter bar in the shell, not
@@ -8,15 +9,13 @@ import { formatPeriodLabel } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 // `GET .../filters` (programs, bottlenecks, kpi-explorer, etc.) - those
 // answer that module's own filter set; this answers the shell's.
 //
-// Per ExecutiveOverviewQueryDto's own comment, only `pillar` and
-// `institution` actually narrow anything downstream today - priority,
-// geographicScope, distributionCompany and technology are accepted for
-// contract parity and are no-ops everywhere. The frontend's own
-// GlobalFilterBar renders controls for only 4 of the 7 (period, pillar,
-// institution, technology) for the same reason - see its own comment.
-// The other 3 are still returned here (the schema requires them) but as
-// fixed, honestly-scoped option lists rather than a query, since nothing
-// stored anywhere backs them yet.
+// `pillar`, `institution`, `period`, `priority` and `distributionCompany`
+// all actually narrow Executive Overview's delivery-status section today
+// (see ExecutiveOverviewService.buildDeliveryStatus). `geographicScope`
+// (an aggregation-LEVEL toggle - national/state/DisCo - not a narrowing
+// filter) and `technology` (no field anywhere records a project's
+// technology) remain honestly-scoped no-ops - implementing either for real
+// is a bigger change than this file, not something to fake here.
 @Injectable()
 export class FiltersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -61,7 +60,13 @@ export class FiltersService {
         { value: "state", label: "By state" },
         { value: "disco", label: "By Distribution Company" },
       ],
-      distributionCompanies: withAll("Distribution Companies", []),
+      distributionCompanies: withAll(
+        "Distribution Companies",
+        [...DISCO_CANONICAL_NAMES].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name })),
+      ),
+      // No field anywhere records a project's technology - see this file's
+      // header comment. Not offering fabricated options for a filter that
+      // can never match anything.
       technologies: withAll("technologies", []),
     };
   }
