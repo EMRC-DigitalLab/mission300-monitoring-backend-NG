@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ReportType, ValidationStatus, KpiReadinessTier, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { RabbitmqService } from "@/events/rabbitmq.service";
-import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { toObligationView, toValidationQueueItem } from "@/modules/data-submissions/data-submissions.mappers";
@@ -14,13 +13,13 @@ import {
   configSignature,
   matchesPillars,
   periodsLabel,
-  trailingPeriodLabels,
   validationStatusLabelFor,
   type ReportConfigLike,
   type ReportFilterOptions,
 } from "@/modules/reports/reports.mappers";
 import type { ReportConfigDto } from "@/modules/reports/dto/report-config.dto";
 import type { ReportsQueryDto } from "@/modules/reports/dto/reports-query.dto";
+import { compareReportingValues } from "@/common/utils/reporting-period";
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -134,96 +133,107 @@ export class ReportsService {
   }
 
   async getOverview(query: ReportsQueryDto) {
-    const search = query.search?.trim().toLowerCase() ?? "";
+    const search = query.search?.trim() ?? "";
     const category = query.category ?? "all";
-    const page = query.page ?? 1;
     const pageSize = Math.min(50, query.pageSize ?? DEFAULT_PAGE_SIZE);
-
+    const reportTypes = Object.values(ReportType).filter((type) => REPORT_TYPE_CATEGORY_OF(type) === category);
+    const where: Prisma.SavedReportWhereInput = {
+      ...(category === "all" ? {} : { reportType: { in: reportTypes } }),
+      ...(search ? {
+        OR: [
+          { title: { contains: search, mode: "insensitive" } },
+          { fileReference: { contains: search, mode: "insensitive" } },
+          { requestedBy: { fullName: { contains: search, mode: "insensitive" } } },
+        ],
+      } : {}),
+    };
+    const total = await this.prisma.savedReport.count({ where });
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(query.page ?? 1, pageCount);
     const saved = await this.prisma.savedReport.findMany({
+      where,
       include: { requestedBy: true },
       orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
-
-    const filtered = saved.filter((r) => {
-      const matchesSearch =
-        !search ||
-        [r.title, r.requestedBy.fullName, r.fileReference].some((f) => f.toLowerCase().includes(search));
-      const matchesCategory = category === "all" || REPORT_TYPE_CATEGORY_OF(r.reportType) === category;
-      return matchesSearch && matchesCategory;
-    });
-
-    const { items, ...pageMeta } = paginate(filtered, page, pageSize);
 
     return {
       lastUpdated: new Date().toISOString(),
       catalogue: buildReportCatalogue(),
       compactExports: buildCompactExportCards(),
-      savedReports: { items: items.map(toSavedReportResponse), ...pageMeta },
+      savedReports: { items: saved.map(toSavedReportResponse), page, pageSize, total },
     };
   }
 
   async preview(dto: ReportConfigDto) {
+    assertSupportedFilters(dto);
     const options = await this.loadFilterOptions();
     return this.buildPreview(dto, options);
   }
 
   async generate(user: AuthenticatedUser, dto: ReportConfigDto) {
+    assertSupportedFilters(dto);
     const options = await this.loadFilterOptions();
-    const preview = await this.buildPreview(dto, options);
+    const fullPreview = await this.buildPreview(dto, options);
+    const preview = {
+      ...fullPreview,
+      sections: fullPreview.sections.filter((section) => !dto.excludedSections?.includes(section.title)),
+    };
 
     const catalogueEntry = buildReportCatalogue().find((c) => c.reportType === toKebabCase(dto.reportType))!;
     const signature = configSignature({ ...dto, reportType: dto.reportType });
-    const filtersSummary = appliedFiltersFor(dto, options)
+    const filtersSummary = reportAppliedFilters(dto, options)
       .map((f) => f.value)
-      .join(" · ");
-    const fileReference = `${toKebabCase(dto.reportType)}_${dto.periods.join("-")}.${toKebabCase(dto.format)}`;
+      .join(" · ") || "Current snapshot";
     // The stored/returned config must match reportConfigSchema's own wire
     // format (kebab-case) exactly, not this backend's internal Prisma enum
     // representation (SCREAMING_SNAKE_CASE) - a caller regenerating from a
     // saved report's own `config` would otherwise round-trip a value the
     // real schema rejects.
-    const wireConfig = { ...dto, reportType: toKebabCase(dto.reportType), format: toKebabCase(dto.format) };
+    const { orientation, excludedSections, ...reportConfig } = dto;
+    const wireConfig = { ...reportConfig, reportType: toKebabCase(dto.reportType), format: toKebabCase(dto.format) };
 
-    const existing = await this.prisma.savedReport.findFirst({ where: { configSignature: signature } });
+    const existing = await this.prisma.savedReport.findFirst({
+      where: { configSignature: signature },
+      orderBy: { lastGeneratedAt: "desc" },
+      select: { version: true },
+    });
+    const version = (existing?.version ?? 0) + 1;
+    const fileReference = `${toKebabCase(dto.reportType)}_${dto.periods.join("-")}_v${version}.${toKebabCase(dto.format)}`;
 
-    const saved = existing
-      ? await this.prisma.savedReport.update({
-          where: { id: existing.id },
-          data: {
-            version: { increment: 1 },
-            format: dto.format,
-            filtersSummary,
-            validationStatusLabel: validationStatusLabelFor(dto, options),
-            fileReference,
-            config: wireConfig as unknown as Prisma.InputJsonValue,
-            lastGeneratedAt: new Date(),
-          },
-          include: { requestedBy: true },
-        })
-      : await this.prisma.savedReport.create({
-          data: {
-            requestedById: user.id,
-            reportType: dto.reportType,
-            title: `${catalogueEntry.title} — ${periodsLabel(dto, options)}`,
-            filtersSummary,
-            validationStatusLabel: validationStatusLabelFor(dto, options),
-            version: 1,
-            format: dto.format,
-            fileReference,
-            configSignature: signature,
-            config: wireConfig as unknown as Prisma.InputJsonValue,
-          },
-          include: { requestedBy: true },
-        });
+    const saved = await this.prisma.savedReport.create({
+      data: {
+        requestedById: user.id,
+        reportType: dto.reportType,
+        title: `${catalogueEntry.title} — ${reportingLabel(dto, options)}`,
+        filtersSummary,
+        validationStatusLabel: reportValidationLabel(dto, options),
+        version,
+        format: dto.format,
+        fileReference,
+        configSignature: signature,
+        config: wireConfig as unknown as Prisma.InputJsonValue,
+        previewSnapshot: preview as unknown as Prisma.InputJsonValue,
+        orientation: orientation ?? "portrait",
+      },
+      include: { requestedBy: true },
+    });
 
-    // Synchronous - there is no async generation step to wait for (the
-    // backend never renders a file; see this module's own header comment).
-    // Still fired so the existing "report ready" email/webhook feature
-    // keeps working, just without the delay it was originally built to
-    // announce the end of.
+    // The snapshot is ready synchronously; the client renders its PDF/XLSX
+    // from these saved rows and metadata.
     await this.rabbitmq.publish("report.ready", { reportId: saved.id });
 
     return { preview, savedReport: toSavedReportResponse(saved) };
+  }
+
+  async getSavedPreview(id: string) {
+    const saved = await this.prisma.savedReport.findUnique({ where: { id } });
+    if (!saved) throw new NotFoundException(`No saved report found with id ${id}`);
+    if (!saved.previewSnapshot) {
+      throw new ConflictException("This report predates saved snapshots. Generate it again to create a reproducible version.");
+    }
+    return { preview: saved.previewSnapshot, orientation: saved.orientation };
   }
 
   async deleteSaved(id: string) {
@@ -282,13 +292,13 @@ export class ReportsService {
 
     return {
       metadata: {
-        title: `${catalogueEntry.title} — ${periodsLabel(config, options)}`,
-        reportingPeriod: periodsLabel(config, options),
-        appliedFilters: appliedFiltersFor(config, options),
+        title: `${catalogueEntry.title} — ${reportingLabel(config, options)}`,
+        reportingPeriod: reportingLabel(config, options),
+        appliedFilters: reportAppliedFilters(config, options),
         generatedAt: now,
         dataVersion: `M300 live database, ${now.slice(0, 10)}`,
         sourceNotes: catalogueEntry.dataSource,
-        validationStatus: validationStatusLabelFor(config, options),
+        validationStatus: reportValidationLabel(config, options),
         units: "As recorded per indicator; see indicator metadata for unit definitions.",
         limitations:
           "Generated from the M300 platform's live database. Verify against the approved Compact Progress Report before external distribution.",
@@ -310,7 +320,7 @@ export class ReportsService {
       case "KPI_INDICATOR":
         return [await this.kpiSection(config, "Indicators", reportType)];
       case "STATE_DISCO":
-        return [await this.stateDiscoSection(config), ...(await this.deliverySection(config))];
+        return [await this.stateDiscoSection(config)];
       case "IMPLEMENTATION":
         return this.deliverySection(config);
       case "BOTTLENECK":
@@ -318,33 +328,38 @@ export class ReportsService {
       case "FINANCIAL":
         return [await this.financialSection(config)];
       case "SUBMISSION_COMPLIANCE":
-        return [await this.complianceSection()];
+        return [await this.complianceSection(config)];
       case "DATA_QUALITY":
-        return [await this.dataQualitySection()];
+        return [await this.dataQualitySection(config)];
     }
   }
 
   private async kpiSection(config: ReportConfigLike, title: string, reportType: ReportType) {
+    const selectedPeriods = config.periods.includes("all") ? null : config.periods;
     const kpis = await this.prisma.kpiDefinition.findMany({
       where: { isActive: true },
       include: KPI_PROFILE_INCLUDE,
     });
     const values = await this.prisma.kpiValue.findMany({
-      where: { kpiDefinitionId: { in: kpis.map((k) => k.id) } },
+      where: {
+        kpiDefinitionId: { in: kpis.map((k) => k.id) },
+        ...(selectedPeriods ? { period: { in: selectedPeriods } } : {}),
+      },
       include: VALUE_INCLUDE,
-      orderBy: { approvedAt: "desc" },
     });
 
     const latestByKpi = new Map<string, (typeof values)[number]>();
     const valuesByKpi = new Map<string, typeof values>();
     for (const v of values) {
-      if (!latestByKpi.has(v.kpiDefinitionId)) latestByKpi.set(v.kpiDefinitionId, v);
+      const previous = latestByKpi.get(v.kpiDefinitionId);
+      if (!previous || compareReportingValues(v, previous) > 0) latestByKpi.set(v.kpiDefinitionId, v);
       const list = valuesByKpi.get(v.kpiDefinitionId) ?? [];
       list.push(v);
       valuesByKpi.set(v.kpiDefinitionId, list);
     }
 
     const rows2 = kpis
+      .filter((kpi) => !selectedPeriods || latestByKpi.has(kpi.id))
       .map((kpi) => ({ kpi, row: toCatalogueRow(kpi, latestByKpi.get(kpi.id) ?? null) }))
       .filter(
         ({ row }) =>
@@ -354,9 +369,9 @@ export class ReportsService {
           (config.readinessTier === "all" || row.readiness === config.readinessTier),
       );
 
-    const isComparable =
-      config.periods.length > 1 && (reportType === "KPI_INDICATOR" || reportType === "PILLAR_PERFORMANCE");
-    const periodLabels = isComparable ? trailingPeriodLabels(config.periods.length) : [];
+    const isComparable = selectedPeriods !== null && selectedPeriods.length > 1 &&
+      (reportType === "KPI_INDICATOR" || reportType === "PILLAR_PERFORMANCE");
+    const periodLabels = isComparable ? selectedPeriods.map(formatPeriodLabel) : [];
 
     const rows = rows2.map(({ kpi, row }) => {
       const profile = toKpiProfile(
@@ -375,9 +390,15 @@ export class ReportsService {
         row.validationStatus,
       ];
       if (isComparable) {
-        const trailing = profile.history.slice(-periodLabels.length);
-        const padding = periodLabels.length - trailing.length;
-        cells.push(...Array(padding).fill("—"), ...trailing.map((p) => String(p.value)));
+        const latestByPeriod = new Map<string, (typeof values)[number]>();
+        for (const value of valuesByKpi.get(kpi.id) ?? []) {
+          const previous = latestByPeriod.get(value.period);
+          if (!previous || value.approvedAt > previous.approvedAt) latestByPeriod.set(value.period, value);
+        }
+        cells.push(...selectedPeriods!.map((period) => {
+          const value = latestByPeriod.get(period);
+          return value ? String(value.value) : "—";
+        }));
       }
       return cells;
     });
@@ -468,13 +489,27 @@ export class ReportsService {
   }
 
   private async stateDiscoSection(config: ReportConfigLike) {
-    const states = await this.prisma.state.findMany({ orderBy: { name: "asc" } });
+    const records = await this.prisma.discoPerformanceRecord.findMany({
+      where: {
+        ...(config.periods.includes("all") ? {} : { period: { in: config.periods } }),
+        ...(config.distributionCompany === "all" ? {} : { institutionId: config.distributionCompany }),
+      },
+      include: { institution: true },
+    });
     return {
-      title: "State coverage",
-      columns: ["ID", "State", "Zone"],
-      rows: states
-        .filter((s) => config.state === "all" || s.id === config.state)
-        .map((s) => [s.id, s.name, s.zone]),
+      title: "Distribution Company performance",
+      columns: ["Distribution Company", "Period", "Active customers", "Metered customers", "Metering rate (%)", "ATC&C loss (%)", "Validation status"],
+      rows: records.map((record) => [
+        record.institution.name,
+        formatPeriodLabel(record.period),
+        String(record.activeCustomers),
+        String(record.meteredCustomers),
+        record.activeCustomers > 0
+          ? ((record.meteredCustomers / record.activeCustomers) * 100).toFixed(2)
+          : "—",
+        String(record.atccLossRatePercent),
+        toKebabCase(record.validationStatus),
+      ]),
     };
   }
 
@@ -484,13 +519,17 @@ export class ReportsService {
       title: "Programme financing",
       columns: ["ID", "Name", "Financing", "Status"],
       rows: programmes
-        .filter((p) => matchesPillars(config, p.pillar.slug))
+        .filter((p) => matchesPillars(config, p.pillar.slug) &&
+          (config.programmeOrAgency === "all" || p.id === config.programmeOrAgency))
         .map((p) => [p.id, p.name, p.financing ?? "Held at project level", toKebabCase(p.status)]),
     };
   }
 
-  private async complianceSection() {
-    const obligations = await this.prisma.obligation.findMany({ include: OBLIGATION_INCLUDE });
+  private async complianceSection(config: ReportConfigLike) {
+    const obligations = await this.prisma.obligation.findMany({
+      where: config.periods.includes("all") ? undefined : { reportingPeriod: { in: config.periods } },
+      include: OBLIGATION_INCLUDE,
+    });
     const submissions = await this.prisma.submission.findMany({
       where: { obligationId: { in: obligations.map((o) => o.id) } },
       orderBy: { createdAt: "desc" },
@@ -513,9 +552,12 @@ export class ReportsService {
     };
   }
 
-  private async dataQualitySection() {
+  private async dataQualitySection(config: ReportConfigLike) {
     const submissions = await this.prisma.submission.findMany({
-      where: { status: "PENDING" },
+      where: {
+        status: "PENDING",
+        ...(config.periods.includes("all") ? {} : { obligation: { reportingPeriod: { in: config.periods } } }),
+      },
       include: SUBMISSION_QUEUE_INCLUDE,
       orderBy: { createdAt: "asc" },
     });
@@ -537,6 +579,65 @@ function titleCase(kebab: string): string {
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+const REPORT_FILTERS: Record<ReportType, readonly string[]> = {
+  COMPACT_PROGRESS: ["pillars"],
+  COMPACT_REVIEW: ["pillars"],
+  PILLAR_PERFORMANCE: ["periods", "pillars", "kpiCategory", "validationStatus", "readinessTier"],
+  KPI_INDICATOR: ["periods", "pillars", "kpiCategory", "validationStatus", "readinessTier"],
+  STATE_DISCO: ["periods", "distributionCompany"],
+  IMPLEMENTATION: ["pillars", "programmeOrAgency"],
+  BOTTLENECK: ["pillars"],
+  FINANCIAL: ["pillars", "programmeOrAgency"],
+  SUBMISSION_COMPLIANCE: ["periods"],
+  DATA_QUALITY: ["periods"],
+};
+
+function reportingLabel(config: ReportConfigLike & { reportType: ReportType }, options: ReportFilterOptions): string {
+  return REPORT_FILTERS[config.reportType].includes("periods")
+    ? periodsLabel(config, options)
+    : "Current snapshot";
+}
+
+function reportAppliedFilters(config: ReportConfigLike & { reportType: ReportType }, options: ReportFilterOptions) {
+  const entries = appliedFiltersFor(config, options);
+  const supported = REPORT_FILTERS[config.reportType];
+  return entries.filter((entry) => {
+    if (entry.label === "Reporting period") return supported.includes("periods");
+    if (entry.label === "Validation status") return supported.includes("validationStatus");
+    return true;
+  });
+}
+
+function reportValidationLabel(config: ReportConfigLike & { reportType: ReportType }, options: ReportFilterOptions) {
+  return REPORT_FILTERS[config.reportType].includes("validationStatus")
+    ? validationStatusLabelFor(config, options)
+    : "Not applicable to this report";
+}
+
+/** A selected filter must never appear in report metadata without affecting its rows. */
+function assertSupportedFilters(config: ReportConfigDto): void {
+  if ((config.periods.includes("all") && config.periods.length > 1) ||
+      (config.pillars.includes("all") && config.pillars.length > 1)) {
+    throw new BadRequestException("All cannot be combined with specific periods or pillars.");
+  }
+  const active = {
+    periods: !config.periods.includes("all"),
+    pillars: !config.pillars.includes("all"),
+    kpiCategory: config.kpiCategory !== "all",
+    state: config.state !== "all",
+    distributionCompany: config.distributionCompany !== "all",
+    programmeOrAgency: config.programmeOrAgency !== "all",
+    validationStatus: config.validationStatus !== "all",
+    readinessTier: config.readinessTier !== "all",
+  };
+  const supported = REPORT_FILTERS[config.reportType];
+  for (const [filter, selected] of Object.entries(active)) {
+    if (selected && !supported.includes(filter)) {
+      throw new BadRequestException(`${filter} is not available for ${toKebabCase(config.reportType)} reports.`);
+    }
+  }
 }
 
 function REPORT_TYPE_CATEGORY_OF(reportType: ReportType): string {

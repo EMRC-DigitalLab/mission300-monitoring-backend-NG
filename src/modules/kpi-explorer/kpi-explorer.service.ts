@@ -11,6 +11,7 @@ import type { SetKpiCurrentValueDto } from "@/modules/kpi-explorer/dto/set-kpi-c
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
+import { compareReportingValues } from "@/common/utils/reporting-period";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -91,15 +92,23 @@ export class KpiExplorerService {
 
     const [allKpis, allValues] = await Promise.all([
       this.prisma.kpiDefinition.findMany({ where: { isActive: true }, include: KPI_INCLUDE }),
-      this.prisma.kpiValue.findMany({ include: VALUE_INCLUDE, orderBy: { approvedAt: "desc" } }),
+      this.prisma.kpiValue.findMany({
+        where: query.reportingPeriod && query.reportingPeriod !== "all"
+          ? { period: query.reportingPeriod }
+          : undefined,
+        include: VALUE_INCLUDE,
+      }),
     ]);
 
     const latestByKpi = new Map<string, (typeof allValues)[number]>();
     for (const value of allValues) {
-      if (!latestByKpi.has(value.kpiDefinitionId)) latestByKpi.set(value.kpiDefinitionId, value);
+      const previous = latestByKpi.get(value.kpiDefinitionId);
+      if (!previous || compareReportingValues(value, previous) > 0) latestByKpi.set(value.kpiDefinitionId, value);
     }
 
-    const allRows = allKpis.map((kpi) => ({
+    const allRows = allKpis
+      .filter((kpi) => !query.reportingPeriod || query.reportingPeriod === "all" || latestByKpi.has(kpi.id))
+      .map((kpi) => ({
       kpi,
       row: toCatalogueRow(kpi, latestByKpi.get(kpi.id) ?? null),
     }));

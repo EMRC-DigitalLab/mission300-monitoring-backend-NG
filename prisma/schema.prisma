@@ -967,9 +967,8 @@ enum ReportType {
 // this endpoint"). POST /reports/generate returns the same {metadata,
 // sections} preview data as POST /reports/preview, synchronously - no
 // queue, no ReportStatus, no worker - and additionally persists this row.
-// Regenerating the exact same config (see reports.service.ts's
-// configSignature()) increments `version` on the existing row rather than
-// creating a new one, matching the real mock's own createSavedReport().
+// Regenerating the same configuration creates a new immutable row with the
+// next version so earlier downloads keep their original data.
 model SavedReport {
   id                     String       @id @default(cuid())
   requestedById          String
@@ -981,15 +980,15 @@ model SavedReport {
   version                Int          @default(1)
   format                 ReportFormat
   fileReference          String
-  /// Identifies "the same report configuration" for the version-increment
-  /// rule above - a stable JSON serialization of config, excluding format
-  /// (switching PDF<->XLSX is still "the same report regenerated", per the
-  /// real mock's own configSignature() comment).
+  /// Identifies the same report configuration across immutable versions.
   configSignature        String
   /// The full ReportConfig that produced this report - stored so it can be
   /// re-run exactly (e.g. from a "regenerate" action) without the caller
   /// re-supplying every filter.
   config                 Json
+  /// The exact data shown when this version was generated. Old rows remain nullable.
+  previewSnapshot        Json?
+  orientation            String       @default("portrait")
   createdAt              DateTime     @default(now())
   lastGeneratedAt        DateTime     @default(now())
 

@@ -51,6 +51,10 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     await this.channel.publish(this.exchange, routingKey, payload);
   }
 
+  isConnected(): boolean {
+    return this.connection?.isConnected() ?? false;
+  }
+
   /**
    * For consumers: bind a queue to one or more routing patterns and handle
    * messages. The routing key is passed through to the handler so one

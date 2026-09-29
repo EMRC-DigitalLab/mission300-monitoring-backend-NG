@@ -58,4 +58,10 @@ export class ReportsController {
   async deleteSaved(@Param("id") id: string) {
     await this.reports.deleteSaved(id);
   }
+
+  @Get("saved/:id/preview")
+  @Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER")
+  getSavedPreview(@Param("id") id: string) {
+    return this.reports.getSavedPreview(id);
+  }
 }

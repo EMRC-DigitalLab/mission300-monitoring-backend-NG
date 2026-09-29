@@ -142,7 +142,20 @@ export class NotificationsConsumer implements OnModuleInit {
     );
 
     const reviewers = await this.prisma.user.findMany({
-      where: { role: { in: ["DATA_REVIEWER", "VALIDATOR"] }, status: "ACTIVE" },
+      where: {
+        status: "ACTIVE",
+        OR: [
+          { role: { in: ["DATA_REVIEWER", "VALIDATOR"] } },
+          { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } },
+        ],
+        AND: [{
+          OR: [
+            { institutionId: submission.institutionId },
+            { role: { in: ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER"] } },
+            { roles: { hasSome: ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER"] } },
+          ],
+        }],
+      },
     });
     const awaitingReview = submissionAwaitingReviewEmail(
       {

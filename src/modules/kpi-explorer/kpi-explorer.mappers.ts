@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
+import { compareReportingValues } from "@/common/utils/reporting-period";
 
 type ValueWithProvenance = KpiValue & { sourceSubmissionItem: SubmissionItem & { submission: Submission } };
 
@@ -118,7 +119,10 @@ type KpiWithFullProfile = KpiWithPillar & { targetPoints: KpiTargetPoint[] };
  * real contract yet, so there's nothing real to join against.
  */
 export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProvenance[]) {
-  const sorted = [...kpiValues].sort((a, b) => a.approvedAt.getTime() - b.approvedAt.getTime());
+  const sorted = [...kpiValues].sort(compareReportingValues);
+  const latestByPeriod = new Map<string, ValueWithProvenance>();
+  for (const value of sorted) latestByPeriod.set(value.period.toLowerCase(), value);
+  const chronological = [...latestByPeriod.values()].sort(compareReportingValues);
   const latest = sorted.at(-1) ?? null;
   const submissionStatus = latest?.sourceSubmissionItem.submission.status ?? null;
   const current = toNumber(latest?.value);
@@ -140,7 +144,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
   }));
 
   const direction = toKebabCase(kpi.direction) as "higher-is-better" | "lower-is-better";
-  const previous = sorted.length > 1 ? sorted.at(-2)! : null;
+  const previous = chronological.length > 1 ? chronological.at(-2)! : null;
   const previousValue = previous ? toNumber(previous.value) : null;
   const trend =
     current !== null && previous !== null && previousValue !== null

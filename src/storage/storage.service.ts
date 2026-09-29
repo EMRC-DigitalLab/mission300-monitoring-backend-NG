@@ -27,6 +27,16 @@ export class StorageService {
     this.root = this.config.get<string>("STORAGE_LOCAL_PATH", "./storage");
   }
 
+  async checkWritable(): Promise<void> {
+    await mkdir(this.root, { recursive: true });
+    const probe = join(this.root, `.readiness-${randomUUID()}`);
+    try {
+      await writeFile(probe, "");
+    } finally {
+      await unlink(probe).catch(() => undefined);
+    }
+  }
+
   async save(subdir: string, file: Express.Multer.File): Promise<StoredFile> {
     const dir = join(this.root, subdir);
     await mkdir(dir, { recursive: true });

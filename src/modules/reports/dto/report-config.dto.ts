@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { ArrayMinSize, IsArray, IsEnum, IsString } from "class-validator";
+import { ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString } from "class-validator";
 import { ReportFormat, ReportType } from "@prisma/client";
 import { parseKebabEnum } from "@/common/utils/enum-casing";
 
@@ -48,4 +48,13 @@ export class ReportConfigDto {
   )
   @IsEnum(ReportFormat)
   format!: ReportFormat;
+
+  @IsOptional()
+  @IsIn(["portrait", "landscape"])
+  orientation?: "portrait" | "landscape";
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludedSections?: string[];
 }

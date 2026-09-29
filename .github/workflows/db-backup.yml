@@ -76,11 +76,16 @@ jobs:
           scp -i deploy_key -P "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=accept-new \
             "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/opt/m300-backend/backups/${{ matrix.environment }}/latest.sql.gz" \
             "backup-download/m300-${{ matrix.environment }}-$(date +%Y-%m-%d).sql.gz"
+          scp -i deploy_key -P "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=accept-new \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/opt/m300-backend/backups/${{ matrix.environment }}/latest-files.tar.gz" \
+            "backup-download/m300-${{ matrix.environment }}-files-$(date +%Y-%m-%d).tar.gz"
+          gzip -t backup-download/*.gz
+          tar -tzf "$(find backup-download -name '*-files-*.tar.gz' -print -quit)" >/dev/null
           rm -f deploy_key
 
       - name: Upload as a workflow artifact (the off-VPS copy)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: db-backup-${{ matrix.environment }}-${{ github.run_id }}
-          path: backup-download/*.sql.gz
+          path: backup-download/*.gz
           retention-days: 30

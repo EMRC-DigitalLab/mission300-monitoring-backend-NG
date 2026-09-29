@@ -301,7 +301,7 @@ export class DataSubmissionsService {
     }
 
     const items = buildSubmissionItems(obligation.dataset.fields, dto.values, obligation.reportingPeriod);
-    const reviewerId = await this.pickReviewer(user.id);
+    const reviewerId = await this.pickReviewer(user.id, obligation.institutionId);
 
     const submission = await this.prisma.submission.create({
       data: {
@@ -459,10 +459,10 @@ export class DataSubmissionsService {
     }
 
     const stored = await this.storage.save("submissions", file);
-    const reviewerId = await this.pickReviewer(user.id);
 
     const created: { submissionId: string; version: number }[] = [];
     for (const row of resolved) {
+      const reviewerId = await this.pickReviewer(user.id, row.institutionId);
       const items = buildSubmissionItems(obligation.dataset.fields, row.values, row.period);
       const submission = await this.prisma.submission.create({
         data: {
@@ -692,7 +692,7 @@ export class DataSubmissionsService {
    * unassigned. Returns null if no reviewer-capable account exists yet
    * (a fresh system before anyone with that role has been invited).
    */
-  private async pickReviewer(submitterId: string): Promise<string | null> {
+  private async pickReviewer(submitterId: string, institutionId: string): Promise<string | null> {
     const { allowSelfReview } = await this.securitySettings.get();
     const reviewers = await this.prisma.user.findMany({
       where: {
@@ -701,6 +701,11 @@ export class DataSubmissionsService {
           { roles: { hasSome: ["DATA_REVIEWER", "VALIDATOR"] } },
         ],
         status: "ACTIVE",
+        AND: [{ OR: [
+          { institutionId },
+          { role: { in: ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER"] } },
+          { roles: { hasSome: ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER"] } },
+        ] }],
         ...(allowSelfReview ? {} : { id: { not: submitterId } }),
       },
       include: { _count: { select: { reviewingSubmissions: { where: { status: "PENDING" } } } } },

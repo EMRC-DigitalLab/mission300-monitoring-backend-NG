@@ -25,6 +25,7 @@ fi
 
 ENV_FILE="/opt/m300-backend/$ENVIRONMENT/.env"
 CONTAINER="m300-backend-$ENVIRONMENT-postgres-1"
+API_CONTAINER="m300-backend-$ENVIRONMENT-api-1"
 # /opt/backups/ on this shared VPS is root-owned (used by another project's
 # own backup job) - m300_user has no write access there. /opt/m300-backend/
 # is m300_user's own directory (same one the deploy already writes into),
@@ -49,9 +50,15 @@ fi
 mkdir -p "$BACKUP_DIR"
 
 OUT_FILE="$BACKUP_DIR/${POSTGRES_DB}_${DATE}.sql.gz"
+FILES_OUT_FILE="$BACKUP_DIR/api-storage_${DATE}.tar.gz"
 echo "Backing up $ENVIRONMENT ($POSTGRES_DB) from $CONTAINER..."
 docker exec "$CONTAINER" pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$OUT_FILE"
+gzip -t "$OUT_FILE"
+echo "Backing up uploaded evidence from $API_CONTAINER..."
+docker cp "$API_CONTAINER:/app/storage/." - | gzip > "$FILES_OUT_FILE"
+gzip -t "$FILES_OUT_FILE"
 echo "Backup written: $OUT_FILE ($(du -h "$OUT_FILE" | cut -f1))"
+echo "Evidence backup written: $FILES_OUT_FILE ($(du -h "$FILES_OUT_FILE" | cut -f1))"
 
 # Also written under a fixed name so the calling workflow (running on the
 # GitHub Actions runner, not this VPS) can scp it back with a predictable
@@ -59,6 +66,8 @@ echo "Backup written: $OUT_FILE ($(du -h "$OUT_FILE" | cut -f1))"
 # here, so there's no way to hand a dynamic, timestamped filename back to
 # that step directly from this remote script.
 cp "$OUT_FILE" "$BACKUP_DIR/latest.sql.gz"
+cp "$FILES_OUT_FILE" "$BACKUP_DIR/latest-files.tar.gz"
 
 find "$BACKUP_DIR" -name "*.sql.gz" ! -name "latest.sql.gz" -mtime "+$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -name "*.tar.gz" ! -name "latest-files.tar.gz" -mtime "+$RETENTION_DAYS" -delete
 echo "Backup complete for $ENVIRONMENT."
