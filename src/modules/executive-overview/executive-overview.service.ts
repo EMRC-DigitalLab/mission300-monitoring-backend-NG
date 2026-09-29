@@ -28,13 +28,42 @@ function formatCompact(value: number): string {
   return numberFormatter.format(value);
 }
 
+/** Same (year, quarter) ordering as FiltersService's sortPeriodsDescending -
+ * a plain year sorts after that year's own quarters (Q5), so an annual
+ * figure reads as the most recent thing known about that year. An
+ * unparseable period (e.g. the frontend's "custom" sentinel, which never
+ * carries real from/to dates today - see GlobalFilterBar's own comment)
+ * returns null, not [0, 0], so it can be told apart from a genuinely early
+ * period rather than silently filtering every KPI value out. */
+function periodSortKey(period: string): [number, number] | null {
+  const quarter = /^q([1-4])-(\d{4})$/i.exec(period.trim());
+  if (quarter) return [Number(quarter[2]), Number(quarter[1])];
+  const year = /^(\d{4})$/.exec(period.trim());
+  if (year) return [Number(year[1]), 5];
+  return null;
+}
+
+/** True when `candidate` is the same period as, or earlier than, `cutoff` -
+ * "as of" semantics, not an exact match, since KPIs report at different
+ * granularities (annual vs quarterly) and a point-in-time filter should
+ * still show the latest known value as of that point, not require an exact
+ * period match that may not exist for every KPI. */
+function isAtOrBeforePeriod(candidate: string, cutoff: [number, number]): boolean {
+  const candidateKey = periodSortKey(candidate);
+  if (!candidateKey) return false;
+  const [candidateYear, candidateQuarter] = candidateKey;
+  const [cutoffYear, cutoffQuarter] = cutoff;
+  if (candidateYear !== cutoffYear) return candidateYear < cutoffYear;
+  return candidateQuarter <= cutoffQuarter;
+}
+
 type KpiProfile = ReturnType<typeof toKpiProfile>;
 
 @Injectable()
 export class ExecutiveOverviewService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async loadProfile(code: string): Promise<KpiProfile> {
+  private async loadProfile(code: string, asOfPeriod?: [number, number]): Promise<KpiProfile> {
     const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code }, include: KPI_PROFILE_INCLUDE });
     if (!kpi) {
       throw new NotFoundException(
@@ -45,12 +74,19 @@ export class ExecutiveOverviewService {
       where: { kpiDefinitionId: kpi.id },
       include: VALUE_INCLUDE,
     });
-    return toKpiProfile(kpi, values);
+    const scopedValues = asOfPeriod ? values.filter((v) => isAtOrBeforePeriod(v.period, asOfPeriod)) : values;
+    return toKpiProfile(kpi, scopedValues);
   }
 
   async getOverview(query: ExecutiveOverviewQueryDto) {
     const pillarFilter = query.pillar ?? "all";
     const institutionFilter = query.institution ?? "all";
+    // "all" (no selection) and an unparseable value (e.g. the frontend's
+    // "custom" sentinel, which never carries real from/to dates - see
+    // GlobalFilterBar's own comment) both mean "no period filter", not
+    // "filter to nothing".
+    const periodFilter =
+      query.period && query.period !== "all" ? periodSortKey(query.period) ?? undefined : undefined;
 
     const [
       peopleProfile,
@@ -75,26 +111,26 @@ export class ExecutiveOverviewService {
       // real target is set on this KPI via the normal KPI Explorer edit
       // screen, rather than fabricating the national composite figure the
       // mock hardcodes with no real backing data.
-      this.loadProfile("M300-P2-024"),
-      this.loadProfile("M300-PX-001"),
-      this.loadProfile("M300-P1-016"),
+      this.loadProfile("M300-P2-024", periodFilter),
+      this.loadProfile("M300-PX-001", periodFilter),
+      this.loadProfile("M300-P1-016", periodFilter),
       // "Clean Cooking - Verified Beneficiary Households (Canonical)" - same
       // pilot-ledger caveat as M300-P2-024 above.
-      this.loadProfile("M300-P2-025"),
-      this.loadProfile("M300-P2-001"),
-      this.loadProfile("M300-P2-003"),
-      this.loadProfile("M300-P2-006"),
+      this.loadProfile("M300-P2-025", periodFilter),
+      this.loadProfile("M300-P2-001", periodFilter),
+      this.loadProfile("M300-P2-003", periodFilter),
+      this.loadProfile("M300-P2-006", periodFilter),
       // Access-delivery channel row for clean cooking - "Improved Cookstoves
       // Distributed", distinct from the M300-P2-025 pilot-ledger headline
       // card above (matches ACCESS_CHANNEL_KPI_IDS in the real frontend
       // mock exactly - the two sections deliberately use different KPIs).
-      this.loadProfile("M300-P2-011"),
-      this.loadProfile("M300-P1-004"),
-      this.loadProfile("M300-P3-004"),
-      this.loadProfile("M300-P3-006"),
-      this.loadProfile("M300-P3-009"),
-      this.loadProfile("M300-P3-010"),
-      this.loadProfile("M300-P4-002"),
+      this.loadProfile("M300-P2-011", periodFilter),
+      this.loadProfile("M300-P1-004", periodFilter),
+      this.loadProfile("M300-P3-004", periodFilter),
+      this.loadProfile("M300-P3-006", periodFilter),
+      this.loadProfile("M300-P3-009", periodFilter),
+      this.loadProfile("M300-P3-010", periodFilter),
+      this.loadProfile("M300-P4-002", periodFilter),
     ]);
 
     const headlineCards = {
