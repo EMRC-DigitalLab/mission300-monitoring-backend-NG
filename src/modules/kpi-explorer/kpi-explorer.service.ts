@@ -139,7 +139,7 @@ export class KpiExplorerService {
 
     return {
       lastUpdated: new Date().toISOString(),
-      summary: buildSummaryCards(allRows.map((r) => r.row)),
+      summary: buildSummaryCards(filteredRows.map((r) => r.row)),
       catalogue: paginate(
         filteredRows.map((r) => r.row),
         query.page ?? 1,
@@ -463,10 +463,10 @@ const PROVENANCE_NOW = () => new Date().toISOString();
 
 /**
  * Matches catalogueSummaryCardSchema, exactly the 4 cards from docs/specs/
- * kpi-explorer.md Section A - computed against the full active catalogue,
- * never affected by the query's own filters (same "these are catalogue
- * summaries, not a filtered view" pattern as Administration's summary
- * cards).
+ * kpi-explorer.md Section A - computed against filteredRows, so these
+ * counts track the same pillar/category/readiness/validationStatus/
+ * sourceInstitution/search narrowing as the catalogue table itself (only
+ * pagination and reportingPeriod are applied on top, at the call site).
  */
 function buildSummaryCards(rows: ReturnType<typeof toCatalogueRow>[]) {
   const now = PROVENANCE_NOW();
