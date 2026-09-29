@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import helmet from "helmet";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
@@ -14,6 +15,7 @@ async function bootstrap() {
 
   app.useLogger(app.get(Logger));
   app.use(helmet());
+  app.use(compression({ threshold: 1024 }));
   // Needed to read the httpOnly refresh-token cookie on POST /auth/refresh.
   app.use(cookieParser());
 

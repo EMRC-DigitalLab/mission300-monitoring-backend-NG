@@ -106,22 +106,7 @@ export class ExecutiveOverviewService {
     const periodFilter =
       query.period && query.period !== "all" ? periodSortKey(query.period) ?? undefined : undefined;
 
-    const [
-      peopleProfile,
-      accessRateProfile,
-      generationProfile,
-      cleanCookingProfile,
-      gridProfile,
-      miniGridProfile,
-      shsProfile,
-      cleanCookingChannelProfile,
-      renewableProfile,
-      meteringProfile,
-      atccProfile,
-      remittanceProfile,
-      shortfallProfile,
-      capitalProfile,
-    ] = await this.loadProfiles([
+    const profilesPromise = this.loadProfiles([
       // "People Connected to Electricity (Canonical)" - currently a small
       // pilot ledger, not yet at national scale (see the real frontend
       // mock's own comment, mocks/data/executive-overview.ts) - this card
@@ -150,6 +135,29 @@ export class ExecutiveOverviewService {
       "M300-P3-010",
       "M300-P4-002",
     ], periodFilter);
+    const deliveryStatusPromise = this.buildDeliveryStatus(
+      pillarFilter,
+      institutionFilter,
+      priorityFilter,
+      distributionCompanyFilter,
+    );
+    const [profiles, deliveryStatus] = await Promise.all([profilesPromise, deliveryStatusPromise]);
+    const [
+      peopleProfile,
+      accessRateProfile,
+      generationProfile,
+      cleanCookingProfile,
+      gridProfile,
+      miniGridProfile,
+      shsProfile,
+      cleanCookingChannelProfile,
+      renewableProfile,
+      meteringProfile,
+      atccProfile,
+      remittanceProfile,
+      shortfallProfile,
+      capitalProfile,
+    ] = profiles;
 
     const headlineCards = {
       peopleWithElectricityAccess: this.buildCompactOutcomeCard(
@@ -197,13 +205,6 @@ export class ExecutiveOverviewService {
       pillarFilter === "all"
         ? nationalPerformanceAll
         : nationalPerformanceAll.filter((m) => m.pillar === pillarFilter);
-
-    const deliveryStatus = await this.buildDeliveryStatus(
-      pillarFilter,
-      institutionFilter,
-      priorityFilter,
-      distributionCompanyFilter,
-    );
 
     return {
       lastUpdated: new Date().toISOString(),

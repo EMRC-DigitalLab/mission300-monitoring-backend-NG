@@ -1,5 +1,6 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, Res } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import type { Response } from "express";
 import { ExecutiveOverviewService } from "@/modules/executive-overview/executive-overview.service";
 import { ExecutiveOverviewQueryDto } from "@/modules/executive-overview/dto/executive-overview-query.dto";
 
@@ -14,7 +15,10 @@ export class ExecutiveOverviewController {
   constructor(private readonly executiveOverview: ExecutiveOverviewService) {}
 
   @Get()
-  getOverview(@Query() query: ExecutiveOverviewQueryDto) {
-    return this.executiveOverview.getOverview(query);
+  async getOverview(@Query() query: ExecutiveOverviewQueryDto, @Res({ passthrough: true }) response: Response) {
+    const started = performance.now();
+    const overview = await this.executiveOverview.getOverview(query);
+    response.setHeader("Server-Timing", `overview;dur=${(performance.now() - started).toFixed(1)}`);
+    return overview;
   }
 }
