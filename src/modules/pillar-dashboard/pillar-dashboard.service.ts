@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
 import { toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
-import { toProgrammeRecord, toProjectRecord } from "@/modules/programs/programs.mappers";
+import { toMilestoneRecord, toProgrammeRecord, toProjectRecord } from "@/modules/programs/programs.mappers";
 import {
   loadBottleneckIdsByLinkedRecord,
   toBottleneckRecord,
@@ -26,6 +26,7 @@ const PROJECT_INCLUDE = {
   updates: true,
 } as const;
 const BOTTLENECK_INCLUDE = { pillar: true, statusHistory: true } as const;
+const MILESTONE_INCLUDE = { project: true } as const;
 
 const EXECUTION_STATUSES = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED", "COMPLETED"] as const;
 
@@ -99,11 +100,22 @@ export class PillarDashboardService {
       })
       .map((kpi) => toPillarCoreIndicator(profilesByCode.get(kpi.code)!, kpi.sourceDataset || "Other"));
 
-    const [programmes, projects, bottlenecksRaw] = await Promise.all([
+    const [programmes, projects, bottlenecksRaw, milestonesRaw] = await Promise.all([
       this.prisma.programme.findMany({ where: { pillarId: pillar.id }, include: PROGRAMME_INCLUDE }),
       this.prisma.project.findMany({ where: { pillarId: pillar.id }, include: PROJECT_INCLUDE }),
       this.prisma.bottleneck.findMany({ where: { pillarId: pillar.id }, include: BOTTLENECK_INCLUDE }),
+      // Real Milestone rows (the same model Programs' own project-detail
+      // milestones tab reads) scoped to this pillar via their project's
+      // pillarId - not the "any KPI whose unit is 'status'" stand-in the
+      // frontend used to show under this same name. Honestly empty until
+      // someone actually creates one for a project in this pillar.
+      this.prisma.milestone.findMany({
+        where: { project: { pillarId: pillar.id } },
+        include: MILESTONE_INCLUDE,
+        orderBy: { expectedDate: "asc" },
+      }),
     ]);
+    const milestoneRecords = milestonesRaw.map(toMilestoneRecord);
 
     const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [
       ...programmes.map((p) => p.id),
@@ -143,6 +155,7 @@ export class PillarDashboardService {
       coreIndicators,
       deliveryStatus: { counts, total: statuses.length },
       bottlenecks,
+      milestones: milestoneRecords,
       programmes: programmeRecords,
       projects: projectRecords,
       // State/DisCo is its own not-yet-built module (a separate entity
