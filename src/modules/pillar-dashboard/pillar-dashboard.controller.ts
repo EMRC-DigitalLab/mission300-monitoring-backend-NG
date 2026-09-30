@@ -1,7 +1,8 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { PillarDashboardService } from "@/modules/pillar-dashboard/pillar-dashboard.service";
+import { PillarDashboardQueryDto } from "@/modules/pillar-dashboard/dto/pillar-dashboard-query.dto";
 
 // A Compact pillar dashboard (m300-frontend/src/api/schemas/pillar-
 // dashboard.ts) - deliberately has no entities of its own, a filtered view
@@ -18,7 +19,7 @@ export class PillarDashboardController {
   constructor(private readonly pillarDashboard: PillarDashboardService) {}
 
   @Get(":pillar")
-  getDashboard(@Param("pillar") pillar: string) {
-    return this.pillarDashboard.getDashboard(pillar);
+  getDashboard(@Param("pillar") pillar: string, @Query() query: PillarDashboardQueryDto) {
+    return this.pillarDashboard.getDashboard(pillar, query.reportingPeriod);
   }
 }

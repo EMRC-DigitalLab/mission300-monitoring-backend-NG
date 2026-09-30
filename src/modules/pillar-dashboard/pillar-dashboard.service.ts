@@ -33,7 +33,7 @@ const EXECUTION_STATUSES = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED", "COMPLE
 export class PillarDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDashboard(pillarSlug: string) {
+  async getDashboard(pillarSlug: string, reportingPeriod?: string) {
     const pillar = await this.prisma.pillar.findUnique({ where: { slug: pillarSlug } });
     if (!pillar) throw new NotFoundException("Unknown Compact pillar.");
 
@@ -51,7 +51,10 @@ export class PillarDashboardService {
     const kpiIds = kpis.map((k) => k.id);
     const allValues = kpiIds.length
       ? await this.prisma.kpiValue.findMany({
-          where: { kpiDefinitionId: { in: kpiIds } },
+          where: {
+            kpiDefinitionId: { in: kpiIds },
+            ...(reportingPeriod && reportingPeriod !== "all" ? { period: reportingPeriod } : {}),
+          },
           include: VALUE_INCLUDE,
         })
       : [];
