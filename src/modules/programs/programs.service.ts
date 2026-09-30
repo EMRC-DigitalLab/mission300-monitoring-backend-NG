@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
 import { ExecutionStatus } from "@prisma/client";
@@ -11,6 +11,14 @@ import {
   toProgrammeRecord,
   toProjectRecord,
 } from "@/modules/programs/programs.mappers";
+import {
+  generateProjectsBulkTemplateBuffer,
+  matchExecutionStatus,
+  matchPillar,
+  matchPipelineReadiness,
+  parseProjectsBulkFile,
+  type BulkUploadRow,
+} from "@/modules/programs/programs-bulk-upload";
 import { loadBottleneckIdsByLinkedRecord } from "@/modules/bottlenecks/bottlenecks.mappers";
 import type { ProgramsQueryDto } from "@/modules/programs/dto/programs-query.dto";
 import type { ProjectsQueryDto } from "@/modules/programs/dto/projects-query.dto";
@@ -352,6 +360,211 @@ export class ProgramsService {
     await this.prisma.project.delete({ where: { id: projectId, owner: existing.owner } });
     return { message: `${existing.id} has been removed from the project register.` };
   }
+
+  async getProjectsBulkUploadTemplate(): Promise<Buffer> {
+    const pillars = await this.prisma.pillar.findMany({ orderBy: { name: "asc" } });
+    return generateProjectsBulkTemplateBuffer(pillars);
+  }
+
+  async bulkUploadProjects(user: AuthenticatedUser, file: Express.Multer.File | undefined) {
+    if (!file) throw new BadRequestException("Select a completed template to upload.");
+
+    let rows: BulkUploadRow[];
+    try {
+      rows = await parseProjectsBulkFile(file.buffer, file.originalname);
+    } catch {
+      throw new BadRequestException("Could not read the uploaded file - use the provided template.");
+    }
+    if (rows.length === 0) throw new BadRequestException("The uploaded file has no data rows to upload.");
+
+    const pillars = await this.prisma.pillar.findMany();
+    const errors: { row: number; message: string }[] = [];
+    let programmesCreated = 0;
+    let programmesUpdated = 0;
+    let projectsCreated = 0;
+    let projectsUpdated = 0;
+    // Only the first row naming a given programme writes that programme's
+    // own fields (see programs-bulk-upload.ts's header comment) - later
+    // rows for the same programme just need the name to match.
+    const programmeIdByName = new Map<string, string>();
+
+    for (const row of rows) {
+      try {
+        const v = row.values;
+        const required: [string, string | undefined][] = [
+          ["Programme name", v.programmeName],
+          ["Programme lead institution", v.programmeLeadInstitution],
+          ["Programme pillar", v.programmePillar],
+          ["Programme objectives", v.programmeObjectives],
+          ["Programme status", v.programmeStatus],
+          ["Programme end date", v.programmeEndDate],
+          ["Project name", v.projectName],
+          ["Project owner institution", v.projectOwner],
+          ["Project lead name", v.projectLeadName],
+          ["Project location", v.projectLocation],
+          ["Project pillar", v.projectPillar],
+          ["Project status", v.projectStatus],
+        ];
+        const missing = required.filter(([, value]) => !value?.trim()).map(([label]) => label);
+        if (missing.length > 0) {
+          throw new BadRequestException(`Missing: ${missing.join(", ")}.`);
+        }
+
+        await assertOperationalInstitutionAccess(this.prisma, user, v.projectOwner!);
+
+        const programmeNameKey = v.programmeName!.trim().toLowerCase();
+        let programmeId = programmeIdByName.get(programmeNameKey);
+
+        if (!programmeId) {
+          const programmePillar = matchPillar(v.programmePillar!, pillars);
+          if (!programmePillar)
+            throw new BadRequestException(`Unknown programme pillar "${v.programmePillar}".`);
+          const programmeStatus = matchExecutionStatus(v.programmeStatus!);
+          if (!programmeStatus)
+            throw new BadRequestException(`Unknown programme status "${v.programmeStatus}".`);
+          const programmeEndDate = parseCellDate(v.programmeEndDate!, "Programme end date");
+
+          const existingProgramme = await this.prisma.programme.findFirst({
+            where: { name: { equals: v.programmeName!.trim(), mode: "insensitive" } },
+          });
+
+          if (existingProgramme) {
+            await this.prisma.programme.update({
+              where: { id: existingProgramme.id },
+              data: {
+                leadInstitution: v.programmeLeadInstitution!.trim(),
+                pillarId: programmePillar.id,
+                objectives: v.programmeObjectives!.trim(),
+                financing: v.programmeFinancing?.trim() || null,
+                status: programmeStatus,
+                endDate: programmeEndDate,
+              },
+            });
+            programmeId = existingProgramme.id;
+            programmesUpdated += 1;
+          } else {
+            const created = await this.prisma.programme.create({
+              data: {
+                name: v.programmeName!.trim(),
+                leadInstitution: v.programmeLeadInstitution!.trim(),
+                supportingInstitutions: [],
+                pillarId: programmePillar.id,
+                objectives: v.programmeObjectives!.trim(),
+                financing: v.programmeFinancing?.trim() || null,
+                status: programmeStatus,
+                priority: "STANDARD",
+                startDate: new Date(),
+                endDate: programmeEndDate,
+                validationStatus: "PROVISIONAL",
+              },
+            });
+            programmeId = created.id;
+            programmesCreated += 1;
+          }
+          programmeIdByName.set(programmeNameKey, programmeId);
+        }
+
+        const projectPillar = matchPillar(v.projectPillar!, pillars);
+        if (!projectPillar) throw new BadRequestException(`Unknown project pillar "${v.projectPillar}".`);
+        const projectStatus = matchExecutionStatus(v.projectStatus!);
+        if (!projectStatus) throw new BadRequestException(`Unknown project status "${v.projectStatus}".`);
+        const projectEndDate = v.projectEndDate?.trim()
+          ? parseCellDate(v.projectEndDate, "Project end date")
+          : null;
+        const pipelineReadiness = v.pipelineReadiness ? matchPipelineReadiness(v.pipelineReadiness) : null;
+        if (v.pipelineReadiness?.trim() && !pipelineReadiness) {
+          throw new BadRequestException(`Unknown pipeline readiness "${v.pipelineReadiness}".`);
+        }
+
+        const existingProject = await this.prisma.project.findFirst({
+          where: { programmeId, name: { equals: v.projectName!.trim(), mode: "insensitive" } },
+        });
+
+        if (existingProject) {
+          await assertOperationalInstitutionAccess(this.prisma, user, existingProject.owner);
+          const statusChanged = projectStatus !== existingProject.currentStatus;
+          await this.prisma.project.update({
+            where: { id: existingProject.id },
+            data: {
+              owner: v.projectOwner!.trim(),
+              leadName: v.projectLeadName!.trim(),
+              location: v.projectLocation!.trim(),
+              pillarId: projectPillar.id,
+              currentStatus: projectStatus,
+              projectedStatus: projectStatus,
+              endDate: projectEndDate,
+              pipelineReadiness,
+              comment: v.comment?.trim() ?? existingProject.comment,
+              ...(statusChanged
+                ? { statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } } }
+                : {}),
+            },
+          });
+          projectsUpdated += 1;
+        } else {
+          await this.prisma.project.create({
+            data: {
+              programmeId,
+              name: v.projectName!.trim(),
+              owner: v.projectOwner!.trim(),
+              leadName: v.projectLeadName!.trim(),
+              location: v.projectLocation!.trim(),
+              latitude: 0,
+              longitude: 0,
+              coverage: "To be confirmed",
+              pillarId: projectPillar.id,
+              lifecycleStage: "IDENTIFICATION",
+              programType: "GOVERNMENT_FUNDED",
+              fundingSource: null,
+              fundingStructure: "To be confirmed",
+              fundingStatus: "UNFUNDED",
+              pipelineReadiness,
+              projectedStatus: projectStatus,
+              currentStatus: projectStatus,
+              startDate: new Date(),
+              endDate: projectEndDate,
+              comment: v.comment?.trim() ?? "",
+              suggestion: "",
+              validationStatus: "PROVISIONAL",
+              description: "Added via bulk upload; full profile to be completed.",
+              budgetUsd: 0,
+              disbursedUsd: 0,
+              contactName: v.projectLeadName!.trim(),
+              contactEmail: "unassigned@example.gov.ng",
+              statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } },
+            },
+          });
+          projectsCreated += 1;
+        }
+      } catch (error) {
+        const message =
+          error instanceof BadRequestException || error instanceof ForbiddenException
+            ? ((error.getResponse() as { message?: string })?.message ?? error.message)
+            : "Could not process this row.";
+        errors.push({ row: row.rowNumber, message: Array.isArray(message) ? message.join(" ") : message });
+      }
+    }
+
+    return {
+      totalRows: rows.length,
+      programmesCreated,
+      programmesUpdated,
+      projectsCreated,
+      projectsUpdated,
+      errorCount: errors.length,
+      errors,
+      message:
+        errors.length === 0
+          ? `Upload complete: ${programmesCreated + programmesUpdated} programme(s), ${projectsCreated + projectsUpdated} project(s) processed.`
+          : `Upload finished with ${errors.length} row error(s): ${programmesCreated + programmesUpdated} programme(s) and ${projectsCreated + projectsUpdated} project(s) were still processed successfully.`,
+    };
+  }
+}
+
+function parseCellDate(value: string, label: string): Date {
+  const date = new Date(value.trim());
+  if (Number.isNaN(date.getTime())) throw new BadRequestException(`${label} "${value}" is not a valid date.`);
+  return date;
 }
 
 function titleCase(kebab: string): string {

@@ -1,5 +1,21 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
+import { ApiTags, ApiBearerAuth, ApiConsumes } from "@nestjs/swagger";
 import { ProgramsService } from "@/modules/programs/programs.service";
 import { ProgramsQueryDto } from "@/modules/programs/dto/programs-query.dto";
 import { ProjectsQueryDto } from "@/modules/programs/dto/projects-query.dto";
@@ -11,6 +27,15 @@ import { AuditAction } from "@/common/decorators/audit-action.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { OPERATIONAL_MANAGERS, OPERATIONAL_WRITERS } from "@/common/guards/operational-scope";
+
+const MAX_BULK_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_BULK_UPLOAD_EXTENSIONS = [".xlsx", ".csv"];
+const ALLOWED_BULK_UPLOAD_MIME_TYPES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/csv",
+];
 
 // Phase A of the Programs/Bottlenecks rebuild: the consolidated Programmes ->
 // Projects -> Milestones drill-down (m300-frontend/src/api/schemas/
@@ -84,7 +109,43 @@ export class ProgramsController {
     return this.programs.deleteProject(user, projectId);
   }
 
-  // Registered after the /projects/* routes above so Nest's routing doesn't
+  // Registered as their own static routes (like /projects/*) so Nest's
+  // routing doesn't treat "bulk-upload" as a :programmeId value either.
+  @Get("bulk-upload/template")
+  async getBulkUploadTemplate(@Res({ passthrough: true }) res: Response) {
+    const buffer = await this.programs.getProjectsBulkUploadTemplate();
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": 'attachment; filename="programs-projects-template.xlsx"',
+    });
+    return new StreamableFile(buffer);
+  }
+
+  @Post("bulk-upload")
+  @Roles(...OPERATIONAL_WRITERS)
+  @ApiConsumes("multipart/form-data")
+  @AuditAction("programs.bulk_uploaded")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_BULK_UPLOAD_SIZE_BYTES },
+      fileFilter: (_req, file, callback) => {
+        const extension = file.originalname.slice(file.originalname.lastIndexOf(".")).toLowerCase();
+        if (
+          !ALLOWED_BULK_UPLOAD_EXTENSIONS.includes(extension) ||
+          !ALLOWED_BULK_UPLOAD_MIME_TYPES.includes(file.mimetype)
+        ) {
+          callback(new BadRequestException("Only .xlsx or .csv files are accepted."), false);
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  bulkUploadProjects(@CurrentUser() user: AuthenticatedUser, @UploadedFile() file: Express.Multer.File) {
+    return this.programs.bulkUploadProjects(user, file);
+  }
+
+  // Registered after the /projects/* and /bulk-upload/* routes above so Nest's routing doesn't
   // treat "projects" as a :programmeId value - same ordering concern as any
   // static-vs-param route conflict.
   @Get(":programmeId")

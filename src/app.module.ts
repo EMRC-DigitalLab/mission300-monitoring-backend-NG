@@ -18,6 +18,7 @@ import { HealthModule } from "@/modules/health/health.module";
 import { InstitutionsModule } from "@/modules/institutions/institutions.module";
 import { ProgramsModule } from "@/modules/programs/programs.module";
 import { FiltersModule } from "@/modules/filters/filters.module";
+import { SearchModule } from "@/modules/search/search.module";
 import { BottlenecksModule } from "@/modules/bottlenecks/bottlenecks.module";
 import { ReportsModule } from "@/modules/reports/reports.module";
 import { StakeholdersModule } from "@/modules/stakeholders/stakeholders.module";
@@ -58,6 +59,7 @@ import { PublicOverviewModule } from "@/modules/public-overview/public-overview.
     InstitutionsModule,
     ProgramsModule,
     FiltersModule,
+    SearchModule,
     BottlenecksModule,
     ReportsModule,
     StakeholdersModule,
