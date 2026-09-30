@@ -12,6 +12,14 @@ import { compareReportingValues } from "@/common/utils/reporting-period";
 
 type ValueWithProvenance = KpiValue & { sourceSubmissionItem: SubmissionItem & { submission: Submission } };
 
+// The one label for "no KpiValue has ever been approved for this KPI yet"
+// (current === null) - every caller showing a KPI's current figure imports
+// this rather than inventing its own wording, so the dashboard never shows
+// two different strings (e.g. "No data yet" here, "Not yet reported"
+// somewhere else) for the identical state. See executive-overview.service.ts's
+// buildAccessChannel/buildCompactOutcomeCard for the other consumers.
+export const NO_KPI_VALUE_LABEL = "No data yet";
+
 /**
  * The real contract's 5-value validationStatus vocabulary is broader than
  * what this system can currently produce: only two decisions ever write a
@@ -183,7 +191,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     baseline,
     baselineLabel: kpi.baselineLabel,
     current,
-    currentLabel: current === null ? "No data yet" : `${current}${kpi.unit ? ` ${kpi.unit}` : ""}`,
+    currentLabel: current === null ? NO_KPI_VALUE_LABEL : `${current}${kpi.unit ? ` ${kpi.unit}` : ""}`,
     target,
     targetLabel: kpi.targetLabel,
     targetBasis: kpi.targetBasis

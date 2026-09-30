@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
-import { toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
+import { NO_KPI_VALUE_LABEL, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
 import {
   mapBottleneckExceptionSeverity,
@@ -19,6 +19,14 @@ const VALUE_INCLUDE = { sourceSubmissionItem: { include: { submission: true } } 
 // documented constant rather than inventing a bespoke KPI for it. Same
 // reasoning the frontend mock gives for its own hardcoded INSTALLED_MW.
 const INSTALLED_CAPACITY_MW = 13_600;
+
+// The one label for "this KPI has no reportingPeriod yet" (an empty
+// profile.reportingPeriod, i.e. no approved value to date it from) - every
+// card below imports this rather than inventing its own wording (this file
+// previously had both "Not yet reported" and "Not yet published" for the
+// identical condition). Distinct from NO_KPI_VALUE_LABEL: this describes a
+// missing *period*, not a missing *value*.
+const NO_REPORTING_PERIOD_LABEL = "Not yet reported";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
@@ -237,7 +245,7 @@ export class ExecutiveOverviewService {
       target,
       scaleMin: 0,
       scaleMax: Math.max(target ?? 0, current, baseline, 1),
-      reportingPeriod: profile.reportingPeriod || "Not yet reported",
+      reportingPeriod: profile.reportingPeriod || NO_REPORTING_PERIOD_LABEL,
       baselineLabel: profile.baselineLabel,
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
       direction: profile.direction,
@@ -265,7 +273,7 @@ export class ExecutiveOverviewService {
       kpiId: profile.id,
       value: profile.current === null ? profile.currentLabel : `${current.toFixed(1)}%`,
       rawValue: current,
-      sourceYear: profile.reportingPeriod || "Not yet published",
+      sourceYear: profile.reportingPeriod || NO_REPORTING_PERIOD_LABEL,
       previousPublication: previous
         ? `previous publication ${previous.value}% (${previous.period})`
         : "No previous publication on record",
@@ -292,7 +300,7 @@ export class ExecutiveOverviewService {
       availabilityRatio: Math.max(0, Math.min(100, Math.round((availableMw / installedMw) * 1000) / 10)),
       sparkline: profile.history.map((p) => ({ period: p.period, value: p.value })),
       benchmarkLabel: `of ${(installedMw / 1000).toFixed(1)} GW installed`,
-      reportingPeriod: profile.reportingPeriod || "Not yet reported",
+      reportingPeriod: profile.reportingPeriod || NO_REPORTING_PERIOD_LABEL,
       source: toSourceTag(profile.validationStatus),
       confidence: toConfidence(profile.validationStatus),
       trend: profile.trend,
@@ -308,7 +316,7 @@ export class ExecutiveOverviewService {
     return {
       id,
       title: profile.name,
-      value: profile.current === null ? "Not yet reported" : numberFormatter.format(current),
+      value: profile.current === null ? NO_KPI_VALUE_LABEL : numberFormatter.format(current),
       rawValue: current,
       target,
       targetLabel: withTargetDate(profile.targetLabel, profile.targetDate),
