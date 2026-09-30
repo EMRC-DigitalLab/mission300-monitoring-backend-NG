@@ -23,6 +23,7 @@ import { MilestonesQueryDto } from "@/modules/programs/dto/milestones-query.dto"
 import { CreateProgrammeDto } from "@/modules/programs/dto/create-programme.dto";
 import { CreateMilestoneDto } from "@/modules/programs/dto/create-milestone.dto";
 import { UpsertProjectDto } from "@/modules/programs/dto/upsert-project.dto";
+import { BulkUploadDto } from "@/modules/programs/dto/bulk-upload.dto";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
@@ -111,7 +112,11 @@ export class ProgramsController {
 
   // Registered as their own static routes (like /projects/*) so Nest's
   // routing doesn't treat "bulk-upload" as a :programmeId value either.
+  // Same role gate as the upload itself - this was previously open to any
+  // signed-in user, which meant a role that could never actually use the
+  // template (an oversight/read-only user, say) could still pull one down.
   @Get("bulk-upload/template")
+  @Roles(...OPERATIONAL_WRITERS)
   async getBulkUploadTemplate(@Res({ passthrough: true }) res: Response) {
     const buffer = await this.programs.getProjectsBulkUploadTemplate();
     res.set({
@@ -141,8 +146,12 @@ export class ProgramsController {
       },
     }),
   )
-  bulkUploadProjects(@CurrentUser() user: AuthenticatedUser, @UploadedFile() file: Express.Multer.File) {
-    return this.programs.bulkUploadProjects(user, file);
+  bulkUploadProjects(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: BulkUploadDto,
+  ) {
+    return this.programs.bulkUploadProjects(user, file, dto.dryRun === "true");
   }
 
   // Registered after the /projects/* and /bulk-upload/* routes above so Nest's routing doesn't

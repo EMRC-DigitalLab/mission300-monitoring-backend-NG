@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
-import { ExecutionStatus } from "@prisma/client";
+import { ExecutionStatus, type Pillar, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
@@ -366,7 +366,7 @@ export class ProgramsService {
     return generateProjectsBulkTemplateBuffer(pillars);
   }
 
-  async bulkUploadProjects(user: AuthenticatedUser, file: Express.Multer.File | undefined) {
+  async bulkUploadProjects(user: AuthenticatedUser, file: Express.Multer.File | undefined, dryRun = false) {
     if (!file) throw new BadRequestException("Select a completed template to upload.");
 
     let rows: BulkUploadRow[];
@@ -388,164 +388,54 @@ export class ProgramsService {
     // rows for the same programme just need the name to match.
     const programmeIdByName = new Map<string, string>();
 
-    for (const row of rows) {
+    // Not dry-run: each row commits in its own transaction the instant it
+    // succeeds, so a mid-file crash keeps every row processed so far - the
+    // rows already written are as real as if uploaded one at a time, only
+    // a genuinely bad row rolls itself back. Dry-run: the ENTIRE loop runs
+    // inside one transaction (so row 2 can still see row 1's programme,
+    // exactly like a real run would resolve it), then that whole
+    // transaction is deliberately aborted at the end via DRY_RUN_ABORT so
+    // nothing persists - the counts below were still computed for real
+    // against the current data, just never committed.
+    const DRY_RUN_ABORT = Symbol("dry-run-abort");
+
+    const runRow = async (db: ProgramsDb, row: BulkUploadRow) => {
+      const outcome = await this.processBulkUploadRow(db, user, row, pillars, programmeIdByName);
+      if (outcome.programmeCreated) programmesCreated += 1;
+      if (outcome.programmeUpdated) programmesUpdated += 1;
+      if (outcome.projectCreated) projectsCreated += 1;
+      if (outcome.projectUpdated) projectsUpdated += 1;
+    };
+
+    if (dryRun) {
       try {
-        const v = row.values;
-        const required: [string, string | undefined][] = [
-          ["Programme name", v.programmeName],
-          ["Programme lead institution", v.programmeLeadInstitution],
-          ["Programme pillar", v.programmePillar],
-          ["Programme objectives", v.programmeObjectives],
-          ["Programme status", v.programmeStatus],
-          ["Programme end date", v.programmeEndDate],
-          ["Project name", v.projectName],
-          ["Project owner institution", v.projectOwner],
-          ["Project lead name", v.projectLeadName],
-          ["Project location", v.projectLocation],
-          ["Project pillar", v.projectPillar],
-          ["Project status", v.projectStatus],
-        ];
-        const missing = required.filter(([, value]) => !value?.trim()).map(([label]) => label);
-        if (missing.length > 0) {
-          throw new BadRequestException(`Missing: ${missing.join(", ")}.`);
-        }
-
-        await assertOperationalInstitutionAccess(this.prisma, user, v.projectOwner!);
-
-        const programmeNameKey = v.programmeName!.trim().toLowerCase();
-        let programmeId = programmeIdByName.get(programmeNameKey);
-
-        if (!programmeId) {
-          const programmePillar = matchPillar(v.programmePillar!, pillars);
-          if (!programmePillar)
-            throw new BadRequestException(`Unknown programme pillar "${v.programmePillar}".`);
-          const programmeStatus = matchExecutionStatus(v.programmeStatus!);
-          if (!programmeStatus)
-            throw new BadRequestException(`Unknown programme status "${v.programmeStatus}".`);
-          const programmeEndDate = parseCellDate(v.programmeEndDate!, "Programme end date");
-
-          const existingProgramme = await this.prisma.programme.findFirst({
-            where: { name: { equals: v.programmeName!.trim(), mode: "insensitive" } },
-          });
-
-          if (existingProgramme) {
-            await this.prisma.programme.update({
-              where: { id: existingProgramme.id },
-              data: {
-                leadInstitution: v.programmeLeadInstitution!.trim(),
-                pillarId: programmePillar.id,
-                objectives: v.programmeObjectives!.trim(),
-                financing: v.programmeFinancing?.trim() || null,
-                status: programmeStatus,
-                endDate: programmeEndDate,
-              },
-            });
-            programmeId = existingProgramme.id;
-            programmesUpdated += 1;
-          } else {
-            const created = await this.prisma.programme.create({
-              data: {
-                name: v.programmeName!.trim(),
-                leadInstitution: v.programmeLeadInstitution!.trim(),
-                supportingInstitutions: [],
-                pillarId: programmePillar.id,
-                objectives: v.programmeObjectives!.trim(),
-                financing: v.programmeFinancing?.trim() || null,
-                status: programmeStatus,
-                priority: "STANDARD",
-                startDate: new Date(),
-                endDate: programmeEndDate,
-                validationStatus: "PROVISIONAL",
-              },
-            });
-            programmeId = created.id;
-            programmesCreated += 1;
+        await this.prisma.$transaction(async (tx) => {
+          for (const row of rows) {
+            try {
+              await runRow(tx, row);
+            } catch (error) {
+              errors.push({ row: row.rowNumber, message: bulkUploadRowErrorMessage(error) });
+            }
           }
-          programmeIdByName.set(programmeNameKey, programmeId);
-        }
-
-        const projectPillar = matchPillar(v.projectPillar!, pillars);
-        if (!projectPillar) throw new BadRequestException(`Unknown project pillar "${v.projectPillar}".`);
-        const projectStatus = matchExecutionStatus(v.projectStatus!);
-        if (!projectStatus) throw new BadRequestException(`Unknown project status "${v.projectStatus}".`);
-        const projectEndDate = v.projectEndDate?.trim()
-          ? parseCellDate(v.projectEndDate, "Project end date")
-          : null;
-        const pipelineReadiness = v.pipelineReadiness ? matchPipelineReadiness(v.pipelineReadiness) : null;
-        if (v.pipelineReadiness?.trim() && !pipelineReadiness) {
-          throw new BadRequestException(`Unknown pipeline readiness "${v.pipelineReadiness}".`);
-        }
-
-        const existingProject = await this.prisma.project.findFirst({
-          where: { programmeId, name: { equals: v.projectName!.trim(), mode: "insensitive" } },
+          throw DRY_RUN_ABORT;
         });
-
-        if (existingProject) {
-          await assertOperationalInstitutionAccess(this.prisma, user, existingProject.owner);
-          const statusChanged = projectStatus !== existingProject.currentStatus;
-          await this.prisma.project.update({
-            where: { id: existingProject.id },
-            data: {
-              owner: v.projectOwner!.trim(),
-              leadName: v.projectLeadName!.trim(),
-              location: v.projectLocation!.trim(),
-              pillarId: projectPillar.id,
-              currentStatus: projectStatus,
-              projectedStatus: projectStatus,
-              endDate: projectEndDate,
-              pipelineReadiness,
-              comment: v.comment?.trim() ?? existingProject.comment,
-              ...(statusChanged
-                ? { statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } } }
-                : {}),
-            },
-          });
-          projectsUpdated += 1;
-        } else {
-          await this.prisma.project.create({
-            data: {
-              programmeId,
-              name: v.projectName!.trim(),
-              owner: v.projectOwner!.trim(),
-              leadName: v.projectLeadName!.trim(),
-              location: v.projectLocation!.trim(),
-              latitude: 0,
-              longitude: 0,
-              coverage: "To be confirmed",
-              pillarId: projectPillar.id,
-              lifecycleStage: "IDENTIFICATION",
-              programType: "GOVERNMENT_FUNDED",
-              fundingSource: null,
-              fundingStructure: "To be confirmed",
-              fundingStatus: "UNFUNDED",
-              pipelineReadiness,
-              projectedStatus: projectStatus,
-              currentStatus: projectStatus,
-              startDate: new Date(),
-              endDate: projectEndDate,
-              comment: v.comment?.trim() ?? "",
-              suggestion: "",
-              validationStatus: "PROVISIONAL",
-              description: "Added via bulk upload; full profile to be completed.",
-              budgetUsd: 0,
-              disbursedUsd: 0,
-              contactName: v.projectLeadName!.trim(),
-              contactEmail: "unassigned@example.gov.ng",
-              statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } },
-            },
-          });
-          projectsCreated += 1;
+      } catch (thrown) {
+        if (thrown !== DRY_RUN_ABORT) throw thrown;
+      }
+    } else {
+      for (const row of rows) {
+        try {
+          await this.prisma.$transaction((tx) => runRow(tx, row));
+        } catch (error) {
+          errors.push({ row: row.rowNumber, message: bulkUploadRowErrorMessage(error) });
         }
-      } catch (error) {
-        const message =
-          error instanceof BadRequestException || error instanceof ForbiddenException
-            ? ((error.getResponse() as { message?: string })?.message ?? error.message)
-            : "Could not process this row.";
-        errors.push({ row: row.rowNumber, message: Array.isArray(message) ? message.join(" ") : message });
       }
     }
 
+    const processedSummary = `${programmesCreated + programmesUpdated} programme(s), ${projectsCreated + projectsUpdated} project(s)`;
+
     return {
+      dryRun,
       totalRows: rows.length,
       programmesCreated,
       programmesUpdated,
@@ -553,12 +443,191 @@ export class ProgramsService {
       projectsUpdated,
       errorCount: errors.length,
       errors,
-      message:
-        errors.length === 0
-          ? `Upload complete: ${programmesCreated + programmesUpdated} programme(s), ${projectsCreated + projectsUpdated} project(s) processed.`
-          : `Upload finished with ${errors.length} row error(s): ${programmesCreated + programmesUpdated} programme(s) and ${projectsCreated + projectsUpdated} project(s) were still processed successfully.`,
+      message: dryRun
+        ? `Preview only - nothing was saved. ${processedSummary} would be processed${errors.length > 0 ? `, with ${errors.length} row error(s)` : ""}.`
+        : errors.length === 0
+          ? `Upload complete: ${processedSummary} processed.`
+          : `Upload finished with ${errors.length} row error(s): ${processedSummary} were still processed successfully.`,
     };
   }
+
+  /** One row's writes - both the programme (only when this is the first row
+   * for that name) and the project - performed against `db`, which is
+   * either `this.prisma` directly or a transaction's `tx`, so the exact
+   * same logic serves the real, per-row-transactional upload and the
+   * whole-file dry-run preview. Throws on any validation/access failure;
+   * the caller decides what that means for the surrounding transaction. */
+  private async processBulkUploadRow(
+    db: ProgramsDb,
+    user: AuthenticatedUser,
+    row: BulkUploadRow,
+    pillars: Pillar[],
+    programmeIdByName: Map<string, string>,
+  ): Promise<{
+    programmeCreated: boolean;
+    programmeUpdated: boolean;
+    projectCreated: boolean;
+    projectUpdated: boolean;
+  }> {
+    const v = row.values;
+    const required: [string, string | undefined][] = [
+      ["Programme name", v.programmeName],
+      ["Programme lead institution", v.programmeLeadInstitution],
+      ["Programme pillar", v.programmePillar],
+      ["Programme objectives", v.programmeObjectives],
+      ["Programme status", v.programmeStatus],
+      ["Programme end date", v.programmeEndDate],
+      ["Project name", v.projectName],
+      ["Project owner institution", v.projectOwner],
+      ["Project lead name", v.projectLeadName],
+      ["Project location", v.projectLocation],
+      ["Project pillar", v.projectPillar],
+      ["Project status", v.projectStatus],
+    ];
+    const missing = required.filter(([, value]) => !value?.trim()).map(([label]) => label);
+    if (missing.length > 0) {
+      throw new BadRequestException(`Missing: ${missing.join(", ")}.`);
+    }
+
+    await assertOperationalInstitutionAccess(db, user, v.projectOwner!);
+
+    let programmeCreated = false;
+    let programmeUpdated = false;
+    const programmeNameKey = v.programmeName!.trim().toLowerCase();
+    let programmeId = programmeIdByName.get(programmeNameKey);
+
+    if (!programmeId) {
+      const programmePillar = matchPillar(v.programmePillar!, pillars);
+      if (!programmePillar) throw new BadRequestException(`Unknown programme pillar "${v.programmePillar}".`);
+      const programmeStatus = matchExecutionStatus(v.programmeStatus!);
+      if (!programmeStatus) throw new BadRequestException(`Unknown programme status "${v.programmeStatus}".`);
+      const programmeEndDate = parseCellDate(v.programmeEndDate!, "Programme end date");
+
+      const existingProgramme = await db.programme.findFirst({
+        where: { name: { equals: v.programmeName!.trim(), mode: "insensitive" } },
+      });
+
+      if (existingProgramme) {
+        await db.programme.update({
+          where: { id: existingProgramme.id },
+          data: {
+            leadInstitution: v.programmeLeadInstitution!.trim(),
+            pillarId: programmePillar.id,
+            objectives: v.programmeObjectives!.trim(),
+            financing: v.programmeFinancing?.trim() || null,
+            status: programmeStatus,
+            endDate: programmeEndDate,
+          },
+        });
+        programmeId = existingProgramme.id;
+        programmeUpdated = true;
+      } else {
+        const created = await db.programme.create({
+          data: {
+            name: v.programmeName!.trim(),
+            leadInstitution: v.programmeLeadInstitution!.trim(),
+            supportingInstitutions: [],
+            pillarId: programmePillar.id,
+            objectives: v.programmeObjectives!.trim(),
+            financing: v.programmeFinancing?.trim() || null,
+            status: programmeStatus,
+            priority: "STANDARD",
+            startDate: new Date(),
+            endDate: programmeEndDate,
+            validationStatus: "PROVISIONAL",
+          },
+        });
+        programmeId = created.id;
+        programmeCreated = true;
+      }
+      programmeIdByName.set(programmeNameKey, programmeId);
+    }
+
+    const projectPillar = matchPillar(v.projectPillar!, pillars);
+    if (!projectPillar) throw new BadRequestException(`Unknown project pillar "${v.projectPillar}".`);
+    const projectStatus = matchExecutionStatus(v.projectStatus!);
+    if (!projectStatus) throw new BadRequestException(`Unknown project status "${v.projectStatus}".`);
+    const projectEndDate = v.projectEndDate?.trim() ? parseCellDate(v.projectEndDate, "Project end date") : null;
+    const pipelineReadiness = v.pipelineReadiness ? matchPipelineReadiness(v.pipelineReadiness) : null;
+    if (v.pipelineReadiness?.trim() && !pipelineReadiness) {
+      throw new BadRequestException(`Unknown pipeline readiness "${v.pipelineReadiness}".`);
+    }
+
+    let projectCreated = false;
+    let projectUpdated = false;
+    const existingProject = await db.project.findFirst({
+      where: { programmeId, name: { equals: v.projectName!.trim(), mode: "insensitive" } },
+    });
+
+    if (existingProject) {
+      await assertOperationalInstitutionAccess(db, user, existingProject.owner);
+      const statusChanged = projectStatus !== existingProject.currentStatus;
+      await db.project.update({
+        where: { id: existingProject.id },
+        data: {
+          owner: v.projectOwner!.trim(),
+          leadName: v.projectLeadName!.trim(),
+          location: v.projectLocation!.trim(),
+          pillarId: projectPillar.id,
+          currentStatus: projectStatus,
+          projectedStatus: projectStatus,
+          endDate: projectEndDate,
+          pipelineReadiness,
+          comment: v.comment?.trim() ?? existingProject.comment,
+          ...(statusChanged
+            ? { statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } } }
+            : {}),
+        },
+      });
+      projectUpdated = true;
+    } else {
+      await db.project.create({
+        data: {
+          programmeId,
+          name: v.projectName!.trim(),
+          owner: v.projectOwner!.trim(),
+          leadName: v.projectLeadName!.trim(),
+          location: v.projectLocation!.trim(),
+          latitude: 0,
+          longitude: 0,
+          coverage: "To be confirmed",
+          pillarId: projectPillar.id,
+          lifecycleStage: "IDENTIFICATION",
+          programType: "GOVERNMENT_FUNDED",
+          fundingSource: null,
+          fundingStructure: "To be confirmed",
+          fundingStatus: "UNFUNDED",
+          pipelineReadiness,
+          projectedStatus: projectStatus,
+          currentStatus: projectStatus,
+          startDate: new Date(),
+          endDate: projectEndDate,
+          comment: v.comment?.trim() ?? "",
+          suggestion: "",
+          validationStatus: "PROVISIONAL",
+          description: "Added via bulk upload; full profile to be completed.",
+          budgetUsd: 0,
+          disbursedUsd: 0,
+          contactName: v.projectLeadName!.trim(),
+          contactEmail: "unassigned@example.gov.ng",
+          statusHistory: { create: { period: CURRENT_PERIOD_LABEL(), status: projectStatus } },
+        },
+      });
+      projectCreated = true;
+    }
+
+    return { programmeCreated, programmeUpdated, projectCreated, projectUpdated };
+  }
+}
+
+type ProgramsDb = PrismaService | Prisma.TransactionClient;
+
+function bulkUploadRowErrorMessage(error: unknown): string {
+  const message =
+    error instanceof BadRequestException || error instanceof ForbiddenException
+      ? ((error.getResponse() as { message?: string })?.message ?? error.message)
+      : "Could not process this row.";
+  return Array.isArray(message) ? message.join(" ") : message;
 }
 
 function parseCellDate(value: string, label: string): Date {
