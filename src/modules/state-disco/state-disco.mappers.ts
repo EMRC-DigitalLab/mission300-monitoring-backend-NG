@@ -36,6 +36,17 @@ export function periodSortKey(period: string): number {
   return year * 4 + quarter;
 }
 
+/** The quarter immediately before `period` (e.g. "q1-2026" -> "q4-2025").
+ * Null for an unparseable period - there is nothing to look up in that
+ * case, not a real "no prior period" answer. */
+export function previousPeriodOf(period: string): string | null {
+  const match = /^q([1-4])-(\d{4})$/.exec(period);
+  if (!match) return null;
+  const quarter = Number(match[1]);
+  const year = Number(match[2]);
+  return quarter === 1 ? `q4-${year - 1}` : `q${quarter - 1}-${year}`;
+}
+
 const numberFormatter = new Intl.NumberFormat("en-US");
 const decimalFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
@@ -83,10 +94,14 @@ export function toDiscoComparisonRowBase(record: RecordWithInstitution) {
   const meteringRate = ratio(record.meteredCustomers, record.activeCustomers);
   const billingEfficiency = ratio(toNumber(record.energyBilledMwh), toNumber(record.energyReceivedMwh));
   const collectionEfficiency = ratio(toNumber(record.revenueCollectedNgn), toNumber(record.revenueBilledNgn));
-  const remittancePerformance = ratio(
-    toNumber(record.remittanceActualNgn),
-    toNumber(record.remittanceObligationNgn),
-  );
+  const remittanceObligationNgn = toNumber(record.remittanceObligationNgn);
+  const remittancePerformance = ratio(toNumber(record.remittanceActualNgn), remittanceObligationNgn);
+  // Same "no obligation reported" case the market-remittance headline card
+  // already distinguishes from a real 0% (state-disco.service.ts) - without
+  // this, a DisCo with no remittance data loaded read as "we checked and
+  // it's zero" instead of "we don't have this figure yet".
+  const remittancePerformanceLabel =
+    remittanceObligationNgn > 0 ? formatPercent(remittancePerformance) : "Not reported";
 
   return {
     id: record.institutionId,
@@ -106,7 +121,7 @@ export function toDiscoComparisonRowBase(record: RecordWithInstitution) {
     revenueCollected: formatNgnBillions(toNumber(record.revenueCollectedNgn)),
     revenueCollectedValue: toNumber(record.revenueCollectedNgn),
     collectionEfficiency: formatPercent(collectionEfficiency),
-    remittancePerformance: formatPercent(remittancePerformance),
+    remittancePerformance: remittancePerformanceLabel,
     validationLabel: toValidationLabel(record.validationStatus),
   };
 }

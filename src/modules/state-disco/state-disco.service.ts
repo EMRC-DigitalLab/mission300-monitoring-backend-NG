@@ -8,6 +8,7 @@ import {
   formatNgnBillions,
   formatPercent,
   periodSortKey,
+  previousPeriodOf,
   ratio,
   toDeliveryRow,
   toDiscoComparisonRowBase,
@@ -127,6 +128,69 @@ export class StateDiscoService {
     return records;
   }
 
+  /** One row per institution for an exact period - unlike
+   * getLatestRecordPerDisco, this never falls back to an earlier period, so
+   * an empty result honestly means "no DisCo reported this period" rather
+   * than silently substituting whatever's latest. */
+  private async getRecordsForExactPeriod(period: string) {
+    const records = await this.prisma.discoPerformanceRecord.findMany({
+      where: { period },
+      include: { institution: true },
+    });
+    const byInstitution = new Map<string, (typeof records)[number]>();
+    for (const record of records) {
+      if (!byInstitution.has(record.institutionId)) byInstitution.set(record.institutionId, record);
+    }
+    return [...byInstitution.values()];
+  }
+
+  /** Sums a set of per-DisCo performance records into the same national-
+   * aggregate shape getOverview's "current" uses, so the prior-period
+   * comparison is computed identically to the current period rather than
+   * by a second, easily-diverging copy of this logic. */
+  private aggregateNational(records: { activeCustomers: number; meteredCustomers: number; energyReceivedMwh: unknown; energyBilledMwh: unknown; revenueBilledNgn: unknown; revenueCollectedNgn: unknown; remittanceObligationNgn: unknown; remittanceActualNgn: unknown; allowedLossRatePercent: unknown }[]) {
+    const totals = records.reduce(
+      (acc, r) => ({
+        activeCustomers: acc.activeCustomers + r.activeCustomers,
+        meteredCustomers: acc.meteredCustomers + r.meteredCustomers,
+        energyReceivedMwh: acc.energyReceivedMwh + Number(r.energyReceivedMwh),
+        energyBilledMwh: acc.energyBilledMwh + Number(r.energyBilledMwh),
+        revenueBilledNgn: acc.revenueBilledNgn + Number(r.revenueBilledNgn),
+        revenueCollectedNgn: acc.revenueCollectedNgn + Number(r.revenueCollectedNgn),
+        remittanceObligationNgn: acc.remittanceObligationNgn + Number(r.remittanceObligationNgn),
+        remittanceActualNgn: acc.remittanceActualNgn + Number(r.remittanceActualNgn),
+        allowedLossRateSum:
+          acc.allowedLossRateSum + (r.allowedLossRatePercent === null ? 0 : Number(r.allowedLossRatePercent)),
+        allowedLossRateCount: acc.allowedLossRateCount + (r.allowedLossRatePercent === null ? 0 : 1),
+      }),
+      {
+        activeCustomers: 0,
+        meteredCustomers: 0,
+        energyReceivedMwh: 0,
+        energyBilledMwh: 0,
+        revenueBilledNgn: 0,
+        revenueCollectedNgn: 0,
+        remittanceObligationNgn: 0,
+        remittanceActualNgn: 0,
+        allowedLossRateSum: 0,
+        allowedLossRateCount: 0,
+      },
+    );
+    const { allowedLossRateSum, allowedLossRateCount, ...rest } = totals;
+    const result = {
+      ...rest,
+      allowedLossRatePercent: allowedLossRateCount > 0 ? allowedLossRateSum / allowedLossRateCount : null,
+      atccLossRatePercent: 0,
+    };
+    const billingEfficiency = result.energyReceivedMwh > 0 ? result.energyBilledMwh / result.energyReceivedMwh : 0;
+    const collectionEfficiency = result.revenueBilledNgn > 0 ? result.revenueCollectedNgn / result.revenueBilledNgn : 0;
+    result.atccLossRatePercent =
+      result.energyReceivedMwh > 0 && result.revenueBilledNgn > 0
+        ? (1 - billingEfficiency * collectionEfficiency) * 100
+        : 0;
+    return result;
+  }
+
   async getOverview(query: StateDiscoQueryDto) {
     const selection = query.distributionCompany ?? "national";
     const periodFilter = query.reportingPeriod ?? "all";
@@ -150,56 +214,26 @@ export class StateDiscoService {
     if (selection === "national") {
       const latestPerDisco = await this.getLatestRecordPerDisco(periodFilter);
       selectedLabel = "National (all DisCos)";
-      const totals = latestPerDisco.reduce(
-        (acc, r) => ({
-          activeCustomers: acc.activeCustomers + r.activeCustomers,
-          meteredCustomers: acc.meteredCustomers + r.meteredCustomers,
-          energyReceivedMwh: acc.energyReceivedMwh + Number(r.energyReceivedMwh),
-          energyBilledMwh: acc.energyBilledMwh + Number(r.energyBilledMwh),
-          revenueBilledNgn: acc.revenueBilledNgn + Number(r.revenueBilledNgn),
-          revenueCollectedNgn: acc.revenueCollectedNgn + Number(r.revenueCollectedNgn),
-          remittanceObligationNgn: acc.remittanceObligationNgn + Number(r.remittanceObligationNgn),
-          remittanceActualNgn: acc.remittanceActualNgn + Number(r.remittanceActualNgn),
-          atccLossRatePercent: 0,
-          // Sum and count only over DisCos that actually have an allowed
-          // benchmark entered - averaging in a 0 for a DisCo with no
-          // benchmark yet would silently understate the national figure.
-          allowedLossRateSum:
-            acc.allowedLossRateSum +
-            (r.allowedLossRatePercent === null ? 0 : Number(r.allowedLossRatePercent)),
-          allowedLossRateCount: acc.allowedLossRateCount + (r.allowedLossRatePercent === null ? 0 : 1),
-        }),
-        {
-          activeCustomers: 0,
-          meteredCustomers: 0,
-          energyReceivedMwh: 0,
-          energyBilledMwh: 0,
-          revenueBilledNgn: 0,
-          revenueCollectedNgn: 0,
-          remittanceObligationNgn: 0,
-          remittanceActualNgn: 0,
-          atccLossRatePercent: 0,
-          allowedLossRateSum: 0,
-          allowedLossRateCount: 0,
-        },
-      );
-      const { allowedLossRateSum, allowedLossRateCount, ...rest } = totals;
-      current = {
-        ...rest,
-        allowedLossRatePercent: allowedLossRateCount > 0 ? allowedLossRateSum / allowedLossRateCount : null,
-      };
-      const billingEfficiency =
-        current.energyReceivedMwh > 0 ? current.energyBilledMwh / current.energyReceivedMwh : 0;
-      const collectionEfficiency =
-        current.revenueBilledNgn > 0 ? current.revenueCollectedNgn / current.revenueBilledNgn : 0;
-      current.atccLossRatePercent =
-        current.energyReceivedMwh > 0 && current.revenueBilledNgn > 0
-          ? (1 - billingEfficiency * collectionEfficiency) * 100
-          : 0;
-      // No real period-aligned multi-institution history is tracked yet to
-      // diff a national aggregate against a prior cycle - honest zero
-      // rather than an invented comparison.
-      previous = null;
+      current = this.aggregateNational(latestPerDisco);
+
+      // The market-wide "current period" to diff against: the filter's own
+      // period when one is picked, otherwise the latest period actually
+      // reported by any DisCo (periods can differ per DisCo under "all").
+      // Only diffs against a period DisCos genuinely reported - an empty
+      // result for that exact prior quarter leaves `previous` null rather
+      // than inventing a comparison, same honesty as the single-DisCo path.
+      const referencePeriod =
+        periodFilter !== "all"
+          ? periodFilter
+          : latestPerDisco.reduce<string | null>(
+              (latest, r) => (!latest || periodSortKey(r.period) > periodSortKey(latest) ? r.period : latest),
+              null,
+            );
+      const priorPeriod = referencePeriod ? previousPeriodOf(referencePeriod) : null;
+      if (priorPeriod) {
+        const priorRecords = await this.getRecordsForExactPeriod(priorPeriod);
+        if (priorRecords.length > 0) previous = this.aggregateNational(priorRecords);
+      }
     } else {
       const institution = await this.prisma.institution.findUnique({ where: { id: selection } });
       if (!institution) throw new NotFoundException("Unknown Distribution Company.");
