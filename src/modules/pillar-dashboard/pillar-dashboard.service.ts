@@ -7,6 +7,7 @@ import {
   toBottleneckRecord,
 } from "@/modules/bottlenecks/bottlenecks.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
+import { reportingPeriodKey } from "@/common/utils/reporting-period";
 import {
   PILLAR_HEADLINE_KPI_CODES,
   PILLAR_LABELS,
@@ -50,15 +51,32 @@ export class PillarDashboardService {
       include: KPI_PROFILE_INCLUDE,
     });
     const kpiIds = kpis.map((k) => k.id);
-    const allValues = kpiIds.length
+    const fetchedValues = kpiIds.length
       ? await this.prisma.kpiValue.findMany({
-          where: {
-            kpiDefinitionId: { in: kpiIds },
-            ...(reportingPeriod && reportingPeriod !== "all" ? { period: reportingPeriod } : {}),
-          },
+          where: { kpiDefinitionId: { in: kpiIds } },
           include: VALUE_INCLUDE,
         })
       : [];
+
+    // "As of" semantics, not an exact string match on `period` - KPIs on the
+    // same pillar report at different cadences (annual vs quarterly), so a
+    // bare-year cutoff like "2026" must still surface a KPI's latest value
+    // at "q2-2026", not silently drop it because the strings don't match
+    // character-for-character. Exact matching here previously made a real,
+    // approved, recent value read as "No data yet" on every pillar
+    // dashboard whenever a KPI's cadence didn't happen to match the
+    // requested period string - see ExecutiveOverviewService's own
+    // isAtOrBeforePeriod, which never had this bug because it always
+    // compared parsed period keys instead of raw strings.
+    const cutoffKey =
+      reportingPeriod && reportingPeriod !== "all" ? reportingPeriodKey(reportingPeriod) : null;
+    const allValues =
+      cutoffKey === null
+        ? fetchedValues
+        : fetchedValues.filter((value) => {
+            const key = reportingPeriodKey(value.period);
+            return key !== null && key <= cutoffKey;
+          });
 
     const valuesByKpi = new Map<string, typeof allValues>();
     for (const value of allValues) {
