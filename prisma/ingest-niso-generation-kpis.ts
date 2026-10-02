@@ -50,6 +50,25 @@ const COMPANY_TO_PLANT: Record<string, string> = {
   MABONDANDIKOWA: "DADINKOWA",
 };
 
+// Every company in "Genco Energy Export" whose name does not substring-match
+// any plant in NERC's "Genco Installed Capacity" sheet, and is NOT one of
+// the five real Nigerian hydro plants (Dadin Kowa, Jebba, Kainji, Shiroro,
+// Zungeru - all five are already covered above, Zungeru via its own
+// dedicated sheet). Each of these was individually checked against public
+// generation-company records and confirmed gas/thermal - verified, not
+// assumed. Any company NOT in this list that also fails to match a plant is
+// now a hard failure (see the throw below), not a silent "unclassified", so
+// a genuinely new or actually-hydro company can never quietly understate
+// the renewable share the way an unclassified company used to.
+const CONFIRMED_THERMAL_UNMATCHED = new Set([
+  "AFAMPOWER",
+  "AZURAPOWER",
+  "GBARAIN",
+  "MEPP",
+  "TRANSAFAMPOWER",
+  "TRANSCORPPOWER",
+]);
+
 const MONTH_TO_QUARTER: Record<string, number> = {
   January: 1,
   February: 1,
@@ -160,6 +179,17 @@ async function main() {
     totals.totalKwh += kwh;
     const fuel = classify(company);
     if (!fuel) {
+      // Only ever reachable for a company individually verified thermal -
+      // anything else that fails to match a plant stops the run rather than
+      // silently excluding a possibly-hydro company from the renewable
+      // numerator. See CONFIRMED_THERMAL_UNMATCHED's own comment.
+      if (!CONFIRMED_THERMAL_UNMATCHED.has(normalise(company))) {
+        throw new Error(
+          `"${company}" does not match any plant in the NERC fuel-classification sheet and is not in ` +
+            `CONFIRMED_THERMAL_UNMATCHED. Check whether it's a new/renamed hydro plant (add it to ` +
+            `COMPANY_TO_PLANT) or genuinely thermal (add it to CONFIRMED_THERMAL_UNMATCHED) before re-running.`,
+        );
+      }
       totals.unclassifiedKwh += kwh;
       unclassifiedCompanies.add(company);
     } else if (fuel === "HYDRO") {
