@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -19,6 +20,7 @@ import { DataSubmissionsQueryDto } from "@/modules/data-submissions/dto/data-sub
 import { ManualEntryDto } from "@/modules/data-submissions/dto/manual-entry.dto";
 import { UploadSubmissionDto } from "@/modules/data-submissions/dto/upload-submission.dto";
 import { RecordValidationDecisionDto } from "@/modules/data-submissions/dto/record-validation-decision.dto";
+import { AssignFocalPersonDto } from "@/modules/data-submissions/dto/assign-focal-person.dto";
 import { BulkRecordValidationDecisionDto } from "@/modules/data-submissions/dto/bulk-record-validation-decision.dto";
 import { CurrentUser, type AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { AuditAction } from "@/common/decorators/audit-action.decorator";
@@ -72,6 +74,13 @@ export class DataSubmissionsController {
   @Get("gaps")
   getGaps(@Query() query: DataSubmissionsQueryDto) {
     return this.dataSubmissions.getGaps(query);
+  }
+
+  @Patch("obligations/:id/focal-person")
+  @Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER")
+  @AuditAction("obligation.focal_person_assigned")
+  assignFocalPerson(@Param("id") id: string, @Body() dto: AssignFocalPersonDto) {
+    return this.dataSubmissions.assignFocalPerson(id, dto.userId ?? null);
   }
 
   @Get("obligations/:id/entry")

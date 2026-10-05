@@ -1,6 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/prisma/prisma.service";
 import type { StakeholdersQueryDto } from "@/modules/stakeholders/dto/stakeholders-query.dto";
+import type {
+  CreateDataCustodianDto,
+  UpdateDataCustodianDto,
+} from "@/modules/stakeholders/dto/upsert-data-custodian.dto";
 
 const ROLE_LABELS: Record<string, string> = {
   SYSTEM_ADMINISTRATOR: "System Administrator",
@@ -76,6 +80,69 @@ export class StakeholdersService {
 
   findDataCustodians() {
     return this.prisma.dataCustodian.findMany({ include: { institution: true } });
+  }
+
+  async createDataCustodian(dto: CreateDataCustodianDto) {
+    const institution = await this.prisma.institution.findUnique({
+      where: { id: dto.institutionId },
+      select: { id: true, name: true },
+    });
+    if (!institution) throw new NotFoundException("Unknown institution.");
+
+    const email = dto.contactEmail.trim().toLowerCase();
+    const duplicate = await this.prisma.dataCustodian.findFirst({
+      where: { institutionId: institution.id, contactEmail: email },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException(`${email} is already a data custodian for ${institution.name}.`);
+    }
+
+    const custodian = await this.prisma.dataCustodian.create({
+      data: {
+        institutionId: institution.id,
+        contactName: dto.contactName.trim(),
+        contactEmail: email,
+        scope: dto.scope.trim(),
+      },
+      include: { institution: true },
+    });
+
+    return { custodian, message: `${custodian.contactName} added as a data custodian for ${institution.name}.` };
+  }
+
+  async updateDataCustodian(id: string, dto: UpdateDataCustodianDto) {
+    const existing = await this.prisma.dataCustodian.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Unknown data custodian.");
+
+    const email = dto.contactEmail?.trim().toLowerCase();
+    if (email && email !== existing.contactEmail) {
+      const duplicate = await this.prisma.dataCustodian.findFirst({
+        where: { institutionId: existing.institutionId, contactEmail: email, id: { not: id } },
+        select: { id: true },
+      });
+      if (duplicate) throw new ConflictException(`${email} is already a data custodian for this institution.`);
+    }
+
+    const custodian = await this.prisma.dataCustodian.update({
+      where: { id },
+      data: {
+        contactName: dto.contactName?.trim(),
+        contactEmail: email,
+        scope: dto.scope?.trim(),
+      },
+      include: { institution: true },
+    });
+
+    return { custodian, message: `${custodian.contactName} updated.` };
+  }
+
+  async deleteDataCustodian(id: string) {
+    const existing = await this.prisma.dataCustodian.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Unknown data custodian.");
+
+    await this.prisma.dataCustodian.delete({ where: { id } });
+    return { message: `${existing.contactName} removed as a data custodian.` };
   }
 
   async getOverview(query: StakeholdersQueryDto) {

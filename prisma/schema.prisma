@@ -75,6 +75,8 @@ model Institution {
   dataCustodians DataCustodian[]
   ownedDatasets Dataset[]       @relation("DatasetOwner")
   obligations   Obligation[]
+  kpiSources    KpiSourceInstitution[]
+  ledProgrammes Programme[]     @relation("ProgrammeLeadInstitution")
   discoPerformanceRecords DiscoPerformanceRecord[]
   discoServiceBands       DiscoServiceBand[]
   discoDeliveryMilestones DiscoDeliveryMilestone[]
@@ -341,6 +343,7 @@ model KpiDefinition {
   submissionItems SubmissionItem[]
   datasetFields   DatasetField[]
   targetPoints    KpiTargetPoint[]
+  sourceInstitutions KpiSourceInstitution[]
 
   @@index([pillarId])
   @@map("kpi_definitions")
@@ -686,6 +689,8 @@ model Programme {
   id                     String            @id @default(cuid())
   name                   String
   leadInstitution        String
+  leadInstitutionId      String?
+  leadInstitutionRecord  Institution?      @relation("ProgrammeLeadInstitution", fields: [leadInstitutionId], references: [id])
   supportingInstitutions String[]          @default([])
   pillarId               String
   pillar                 Pillar            @relation(fields: [pillarId], references: [id])
@@ -704,6 +709,7 @@ model Programme {
   projects               Project[]
 
   @@index([pillarId])
+  @@index([leadInstitutionId])
   @@map("programmes")
 }
 
@@ -1271,4 +1277,18 @@ model LearningLogEntry {
   decidedAt     DateTime          @default(now())
 
   @@map("learning_log_entries")
+}
+
+model KpiSourceInstitution {
+  id                String        @id @default(cuid())
+  kpiDefinitionId   String
+  kpiDefinition     KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Cascade)
+  institutionId     String
+  institution       Institution   @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  createdAt         DateTime      @default(now())
+
+  @@unique([kpiDefinitionId, institutionId])
+  @@index([kpiDefinitionId])
+  @@index([institutionId])
+  @@map("kpi_source_institutions")
 }

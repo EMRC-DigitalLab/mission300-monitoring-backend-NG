@@ -5,6 +5,7 @@ import { ExecutionStatus, type Pillar, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
 import { toKebabCase } from "@/common/utils/enum-casing";
+import { findInstitutionIdForSourceText } from "@/common/institutions/resolve-institution-record";
 import {
   buildHeadlineCards,
   toMilestoneRecord,
@@ -29,7 +30,7 @@ import type { UpsertProjectDto } from "@/modules/programs/dto/upsert-project.dto
 
 const DEFAULT_PAGE_SIZE = 10;
 
-const PROGRAMME_INCLUDE = { pillar: true } as const;
+const PROGRAMME_INCLUDE = { pillar: true, leadInstitutionRecord: true } as const;
 const PROJECT_INCLUDE = {
   pillar: true,
   programme: true,
@@ -235,10 +236,16 @@ export class ProgramsService {
     const pillar = await this.prisma.pillar.findUnique({ where: { slug: dto.pillar } });
     if (!pillar) throw new NotFoundException("Unknown pillar.");
 
+    const leadInstitutionId = await findInstitutionIdForSourceText(
+      this.prisma,
+      dto.leadInstitution,
+    );
+
     const programme = await this.prisma.programme.create({
       data: {
         name: dto.name.trim(),
         leadInstitution: dto.leadInstitution.trim(),
+        leadInstitutionId,
         supportingInstitutions: [],
         pillarId: pillar.id,
         objectives: dto.objectives.trim(),
@@ -512,6 +519,10 @@ export class ProgramsService {
           where: { id: existingProgramme.id },
           data: {
             leadInstitution: v.programmeLeadInstitution!.trim(),
+            leadInstitutionId: await findInstitutionIdForSourceText(
+              db,
+              v.programmeLeadInstitution!,
+            ),
             pillarId: programmePillar.id,
             objectives: v.programmeObjectives!.trim(),
             financing: v.programmeFinancing?.trim() || null,
@@ -526,6 +537,10 @@ export class ProgramsService {
           data: {
             name: v.programmeName!.trim(),
             leadInstitution: v.programmeLeadInstitution!.trim(),
+            leadInstitutionId: await findInstitutionIdForSourceText(
+              db,
+              v.programmeLeadInstitution!,
+            ),
             supportingInstitutions: [],
             pillarId: programmePillar.id,
             objectives: v.programmeObjectives!.trim(),

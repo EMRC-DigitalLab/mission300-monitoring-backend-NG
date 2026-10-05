@@ -1,5 +1,7 @@
 import type {
+  Institution,
   KpiDefinition,
+  KpiSourceInstitution,
   KpiTargetPoint,
   KpiValue,
   Pillar,
@@ -88,7 +90,20 @@ function buildTrend(
   };
 }
 
-type KpiWithPillar = KpiDefinition & { pillar: Pillar };
+type ResolvedSourceInstitution = KpiSourceInstitution & { institution: Institution };
+
+type KpiWithPillar = KpiDefinition & {
+  pillar: Pillar;
+  sourceInstitutions?: ResolvedSourceInstitution[];
+};
+
+function toResolvedSourceInstitutions(kpi: KpiWithPillar) {
+  return (kpi.sourceInstitutions ?? []).map((link) => ({
+    id: link.institution.id,
+    name: link.institution.name,
+    type: link.institution.type,
+  }));
+}
 
 /** Matches kpiCatalogueRowSchema exactly (m300-frontend/src/api/schemas/kpi-explorer.ts). */
 export function toCatalogueRow(kpi: KpiWithPillar, latestValue: ValueWithProvenance | null) {
@@ -100,6 +115,7 @@ export function toCatalogueRow(kpi: KpiWithPillar, latestValue: ValueWithProvena
     category: kpi.category || "Uncategorized",
     unit: kpi.unit,
     sourceInstitution: kpi.sourceInstitution || "Not supplied",
+    sourceInstitutions: toResolvedSourceInstitutions(kpi),
     sourceDataset: kpi.sourceDataset || "Not supplied",
     frequency: kpi.frequency || "Not supplied",
     readiness: toKebabCase(kpi.readiness),
@@ -207,6 +223,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     history,
 
     sourceInstitution: kpi.sourceInstitution || "Not supplied",
+    sourceInstitutions: toResolvedSourceInstitutions(kpi),
     sourceDataset: kpi.sourceDataset || "Not supplied",
     sourceReference: kpi.sourceReference,
     reportingPeriod: latest ? formatPeriodLabel(latest.period) : "",

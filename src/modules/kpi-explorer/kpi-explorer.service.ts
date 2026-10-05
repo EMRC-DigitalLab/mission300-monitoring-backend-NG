@@ -12,12 +12,21 @@ import type { AuthenticatedUser } from "@/common/decorators/current-user.decorat
 import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
 import { compareReportingValues } from "@/common/utils/reporting-period";
+import {
+  CANONICAL_INSTITUTIONS,
+  resolveInstitutionSources,
+} from "@/common/institutions/institution-alias";
 
 const DEFAULT_PAGE_SIZE = 20;
 
 const VALUE_INCLUDE = { sourceSubmissionItem: { include: { submission: true } } } as const;
-const KPI_INCLUDE = { pillar: true } as const;
-const KPI_PROFILE_INCLUDE = { pillar: true, targetPoints: true } as const;
+const SOURCE_INSTITUTION_INCLUDE = { include: { institution: true } } as const;
+const KPI_INCLUDE = { pillar: true, sourceInstitutions: SOURCE_INSTITUTION_INCLUDE } as const;
+const KPI_PROFILE_INCLUDE = {
+  pillar: true,
+  targetPoints: true,
+  sourceInstitutions: SOURCE_INSTITUTION_INCLUDE,
+} as const;
 
 const READINESS_TIERS = ["CORE", "SUPPORTING", "FUTURE"] as const;
 const VALIDATION_STATUSES = [
@@ -230,6 +239,8 @@ export class KpiExplorerService {
           });
         }
       }
+
+      await syncKpiSourceInstitutions(tx, kpi.id, dto.sourceInstitution);
     });
 
     return this.getProfile(code);
@@ -267,7 +278,17 @@ export class KpiExplorerService {
       include: { pillar: true },
     });
 
-    return { row: toCatalogueRow(kpi, null), message: `${dto.name} was added to the catalogue.` };
+    await syncKpiSourceInstitutions(this.prisma, kpi.id, dto.sourceInstitution);
+
+    const withSources = await this.prisma.kpiDefinition.findUniqueOrThrow({
+      where: { id: kpi.id },
+      include: KPI_INCLUDE,
+    });
+
+    return {
+      row: toCatalogueRow(withSources, null),
+      message: `${dto.name} was added to the catalogue.`,
+    };
   }
 
   /**
@@ -426,30 +447,79 @@ export class KpiExplorerService {
     return this.getProfile(code);
   }
 
-  /**
-   * A KpiValue needs an institutionId, but KpiDefinition.sourceInstitution
-   * is free text, not a relation - so this finds the Institution row that
-   * name already matches (case-insensitively), falls back to the admin's
-   * own institution if they have one, and only creates a new Institution
-   * row as a last resort (type "Administrative", since nothing more
-   * specific is known about it here).
-   */
   private async resolveInstitutionId(sourceInstitution: string, fallbackInstitutionId: string | null) {
     const name = sourceInstitution.trim();
+
     if (name) {
       const existing = await this.prisma.institution.findFirst({
         where: { name: { equals: name, mode: "insensitive" } },
       });
       if (existing) return existing.id;
+
+      const [slug] = resolveInstitutionSources(name).slugs;
+      if (slug) {
+        const canonical = await this.prisma.institution.findUnique({
+          where: { id: CANONICAL_INSTITUTIONS[slug].id },
+        });
+        if (canonical) return canonical.id;
+      }
     }
 
     if (fallbackInstitutionId) return fallbackInstitutionId;
 
-    const created = await this.prisma.institution.create({
-      data: { name: name || "Unattributed (admin override)", type: "Administrative" },
-    });
-    return created.id;
+    throw new BadRequestException(
+      name
+        ? `Source institution "${name}" does not match a registered institution. Register it, or add an alias in institution-alias.ts, before overriding this value.`
+        : "This indicator has no source institution recorded, and you are not attached to an institution. Set the indicator's source institution before overriding its value.",
+    );
   }
+}
+
+type KpiSourceInstitutionWriter = {
+  institution: {
+    findMany: (args: {
+      where: { type?: string; id?: { in: string[] } };
+      select: { id: true };
+    }) => Promise<{ id: string }[]>;
+  };
+  kpiSourceInstitution: {
+    deleteMany: (args: { where: { kpiDefinitionId: string } }) => Promise<unknown>;
+    createMany: (args: {
+      data: { kpiDefinitionId: string; institutionId: string }[];
+      skipDuplicates: boolean;
+    }) => Promise<unknown>;
+  };
+};
+
+async function syncKpiSourceInstitutions(
+  client: KpiSourceInstitutionWriter,
+  kpiDefinitionId: string,
+  sourceInstitution: string,
+) {
+  const resolution = resolveInstitutionSources(sourceInstitution ?? "");
+  const institutionIds = resolution.slugs.map((slug) => CANONICAL_INSTITUTIONS[slug].id);
+
+  if (resolution.allDiscos) {
+    const discos = await client.institution.findMany({
+      where: { type: "Disco" },
+      select: { id: true },
+    });
+    institutionIds.push(...discos.map((disco) => disco.id));
+  }
+
+  await client.kpiSourceInstitution.deleteMany({ where: { kpiDefinitionId } });
+  if (institutionIds.length === 0) return;
+
+  const existing = await client.institution.findMany({
+    where: { id: { in: [...new Set(institutionIds)] } },
+    select: { id: true },
+  });
+  if (existing.length === 0) return;
+
+  await client.kpiSourceInstitution.createMany({
+    data: existing.map((institution) => ({ kpiDefinitionId, institutionId: institution.id })),
+    skipDuplicates: true,
+  });
 }
 
 function titleCase(kebab: string): string {

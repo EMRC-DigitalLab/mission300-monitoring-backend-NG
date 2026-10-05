@@ -155,6 +155,45 @@ export class DataSubmissionsService {
     return datasets.map(toDatasetView);
   }
 
+  async assignFocalPerson(obligationId: string, userId: string | null) {
+    const obligation = await this.prisma.obligation.findUnique({
+      where: { id: obligationId },
+      include: OBLIGATION_INCLUDE,
+    });
+    if (!obligation) throw new NotFoundException("Unknown obligation.");
+
+    if (userId) {
+      const candidate = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, fullName: true, institutionId: true },
+      });
+      if (!candidate) throw new NotFoundException("Unknown user.");
+      if (candidate.institutionId !== obligation.institutionId) {
+        throw new BadRequestException(
+          "A focal person must belong to the institution that owes this submission.",
+        );
+      }
+    }
+
+    const updated = await this.prisma.obligation.update({
+      where: { id: obligationId },
+      data: { focalPersonId: userId },
+      include: OBLIGATION_INCLUDE,
+    });
+
+    const latestSubmission = await this.prisma.submission.findFirst({
+      where: { obligationId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return {
+      obligation: toObligationView(updated, latestSubmission),
+      message: userId
+        ? `${updated.focalPerson?.fullName ?? "Focal person"} is now the focal person for ${updated.dataset.name}.`
+        : `Focal person cleared for ${updated.dataset.name}.`,
+    };
+  }
+
   async getObligations(user: AuthenticatedUser, query: DataSubmissionsQueryDto) {
     await this.materializeBacklogObligations(user, query);
 

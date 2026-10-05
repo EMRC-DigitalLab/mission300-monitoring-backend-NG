@@ -1,4 +1,5 @@
 import type {
+  Institution,
   Milestone,
   Pillar,
   Programme,
@@ -13,7 +14,10 @@ function toNumber(value: unknown): number {
   return value === null || value === undefined ? 0 : Number(value);
 }
 
-type ProgrammeWithPillar = Programme & { pillar: Pillar };
+type ProgrammeWithPillar = Programme & {
+  pillar: Pillar;
+  leadInstitutionRecord?: Institution | null;
+};
 
 /** Matches programmeRecordSchema exactly (m300-frontend/src/api/schemas/programs.ts). */
 export function toProgrammeRecord(p: ProgrammeWithPillar, bottleneckIds: string[]) {
@@ -21,6 +25,9 @@ export function toProgrammeRecord(p: ProgrammeWithPillar, bottleneckIds: string[
     id: p.id,
     name: p.name,
     leadInstitution: p.leadInstitution,
+    leadInstitutionRecord: p.leadInstitutionRecord
+      ? { id: p.leadInstitutionRecord.id, name: p.leadInstitutionRecord.name }
+      : null,
     supportingInstitutions: p.supportingInstitutions,
     pillar: p.pillar.slug,
     objectives: p.objectives,
