@@ -10,6 +10,7 @@ import { Roles } from "@/common/decorators/roles.decorator";
 export class InstitutionsController {
   constructor(private readonly institutions: InstitutionsService) {}
 
+  @Roles("SYSTEM_ADMINISTRATOR")
   @Get()
   findAll() {
     return this.institutions.findAll();
@@ -21,6 +22,7 @@ export class InstitutionsController {
     return this.institutions.getMyOverview(user);
   }
 
+  @Roles("SYSTEM_ADMINISTRATOR")
   @Get(":id")
   findOne(@Param("id") id: string) {
     return this.institutions.findOne(id);

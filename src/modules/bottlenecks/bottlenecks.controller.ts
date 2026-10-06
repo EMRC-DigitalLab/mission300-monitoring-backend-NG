@@ -21,13 +21,13 @@ export class BottlenecksController {
   constructor(private readonly bottlenecks: BottlenecksService) {}
 
   @Get("filters")
-  getFilters() {
-    return this.bottlenecks.getFilters();
+  getFilters(@CurrentUser() user: AuthenticatedUser) {
+    return this.bottlenecks.getFilters(user);
   }
 
   @Get()
-  getOverview(@Query() query: BottlenecksQueryDto) {
-    return this.bottlenecks.getOverview(query);
+  getOverview(@CurrentUser() user: AuthenticatedUser, @Query() query: BottlenecksQueryDto) {
+    return this.bottlenecks.getOverview(user, query);
   }
 
   @Post()
@@ -49,8 +49,12 @@ export class BottlenecksController {
   }
 
   @Get("by-project/:projectId")
-  getByProject(@Param("projectId") projectId: string, @Query() query: BottlenecksQueryDto) {
-    return this.bottlenecks.getByProject(projectId, query);
+  getByProject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("projectId") projectId: string,
+    @Query() query: BottlenecksQueryDto,
+  ) {
+    return this.bottlenecks.getByProject(user, projectId, query);
   }
 
   @Delete(":id")

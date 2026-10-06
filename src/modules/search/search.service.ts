@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
+import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { PrismaService } from "@/prisma/prisma.service";
+import { programmeVisibleTo, projectVisibleTo, resolveReadScope } from "@/modules/programs/programs-visibility";
 
 const RESULTS_PER_TYPE = 5;
 const MIN_QUERY_LENGTH = 2;
@@ -24,9 +26,11 @@ export interface SearchResultItem {
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async search(rawQuery: string | undefined): Promise<{ query: string; results: SearchResultItem[] }> {
+  async search(user: AuthenticatedUser, rawQuery: string | undefined): Promise<{ query: string; results: SearchResultItem[] }> {
     const query = (rawQuery ?? "").trim();
     if (query.length < MIN_QUERY_LENGTH) return { query, results: [] };
+
+    const scope = await resolveReadScope(this.prisma, user);
 
     const [kpis, programmes, projects] = await Promise.all([
       this.prisma.kpiDefinition.findMany({
@@ -42,17 +46,22 @@ export class SearchService {
         orderBy: { name: "asc" },
       }),
       this.prisma.programme.findMany({
-        where: { name: { contains: query, mode: "insensitive" } },
+        where: { AND: [{ name: { contains: query, mode: "insensitive" } }, programmeVisibleTo(scope)] },
         include: { pillar: true },
         take: RESULTS_PER_TYPE,
         orderBy: { name: "asc" },
       }),
       this.prisma.project.findMany({
         where: {
-          OR: [
-            { name: { contains: query, mode: "insensitive" } },
-            { owner: { contains: query, mode: "insensitive" } },
-            { location: { contains: query, mode: "insensitive" } },
+          AND: [
+            {
+              OR: [
+                { name: { contains: query, mode: "insensitive" } },
+                { owner: { contains: query, mode: "insensitive" } },
+                { location: { contains: query, mode: "insensitive" } },
+              ],
+            },
+            projectVisibleTo(scope),
           ],
         },
         include: { programme: true },

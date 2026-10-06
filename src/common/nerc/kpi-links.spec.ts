@@ -13,8 +13,11 @@ describe("KPI_LINKS", () => {
     expect(validateKpiLinks(KPI_LINKS)).toEqual([]);
   });
 
-  it("links the six matrix KPIs to the indicators that hold their data", () => {
-    expect(KPI_LINKS).toHaveLength(6);
+  it("links the nine matrix KPIs to the indicators that record the same measurement", () => {
+    expect(KPI_LINKS).toHaveLength(9);
+    expect(KPI_LINKS).toContainEqual({ canonical: "M300-P2-006", alias: "M300-P2-030" });
+    expect(KPI_LINKS).toContainEqual({ canonical: "M300-P4-001", alias: "M300-P4-009" });
+    expect(KPI_LINKS).toContainEqual({ canonical: "M300-P2-008", alias: "M300-P2-025" });
     expect(KPI_LINKS).toContainEqual({ canonical: "M300-P2-002", alias: "M300-P2-026" });
     expect(KPI_LINKS).toContainEqual({ canonical: "M300-P1-003", alias: "M300-P1-016" });
   });

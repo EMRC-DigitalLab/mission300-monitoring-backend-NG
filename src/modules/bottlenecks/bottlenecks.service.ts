@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
+import { resolveBottleneckVisibility } from "@/modules/bottlenecks/bottlenecks-visibility";
+import { projectVisibleTo, resolveReadScope } from "@/modules/programs/programs-visibility";
 import { BottleneckCategory, EscalationStatus, LifecycleStage, RegisterSeverity } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
@@ -41,12 +43,13 @@ function median(values: number[]): number {
 export class BottlenecksService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getFilters() {
+  async getFilters(user: AuthenticatedUser) {
+    const visible = await resolveBottleneckVisibility(this.prisma, user);
     const [pillars, institutions, linkedRecords] = await Promise.all([
       this.prisma.pillar.findMany({ orderBy: { name: "asc" } }),
-      this.prisma.bottleneck.findMany({ select: { institution: true }, distinct: ["institution"] }),
+      this.prisma.bottleneck.findMany({ where: visible, select: { institution: true }, distinct: ["institution"] }),
       this.prisma.bottleneck.findMany({
-        where: { linkedRecord: { not: "" } },
+        where: { AND: [visible, { linkedRecord: { not: "" } }] },
         select: { linkedRecord: true },
         distinct: ["linkedRecord"],
       }),
@@ -105,11 +108,12 @@ export class BottlenecksService {
     };
   }
 
-  async getOverview(query: BottlenecksQueryDto) {
+  async getOverview(user: AuthenticatedUser, query: BottlenecksQueryDto) {
     const now = new Date();
+    const visible = await resolveBottleneckVisibility(this.prisma, user);
     const [register, escalations] = await Promise.all([
-      this.prisma.bottleneck.findMany({ include: BOTTLENECK_INCLUDE, orderBy: { dateRaised: "desc" } }),
-      this.prisma.escalation.findMany({ orderBy: { dueDate: "asc" } }),
+      this.prisma.bottleneck.findMany({ where: visible, include: BOTTLENECK_INCLUDE, orderBy: { dateRaised: "desc" } }),
+      this.prisma.escalation.findMany({ where: { bottleneck: visible }, orderBy: { dueDate: "asc" } }),
     ]);
 
     // "Open" excludes both resolved AND blocked, matching the frontend
@@ -345,8 +349,9 @@ export class BottlenecksService {
     });
   }
 
-  async getByProject(projectId: string, query: BottlenecksQueryDto) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+  async getByProject(user: AuthenticatedUser, projectId: string, query: BottlenecksQueryDto) {
+    const scope = await resolveReadScope(this.prisma, user);
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, ...projectVisibleTo(scope) } });
     if (!project) throw new NotFoundException("The project was not found.");
 
     const now = new Date();

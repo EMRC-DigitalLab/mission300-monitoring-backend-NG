@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import type { Response } from "express";
 import { ExecutiveOverviewService } from "@/modules/executive-overview/executive-overview.service";
 import { ExecutiveOverviewQueryDto } from "@/modules/executive-overview/dto/executive-overview-query.dto";
+import { Roles } from "@/common/decorators/roles.decorator";
 
 // The Compact leadership view (m300-frontend/src/api/schemas/
 // executive-overview.ts) - a pure read-composition layer over KPI Explorer
@@ -10,6 +11,7 @@ import { ExecutiveOverviewQueryDto } from "@/modules/executive-overview/dto/exec
 // own, same as Pillar Dashboards (per docs/database-structure.md).
 @ApiTags("executive-overview")
 @ApiBearerAuth()
+@Roles("SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER", "OVERSIGHT_USER", "READ_ONLY_USER")
 @Controller("executive-overview")
 export class ExecutiveOverviewController {
   constructor(private readonly executiveOverview: ExecutiveOverviewService) {}
