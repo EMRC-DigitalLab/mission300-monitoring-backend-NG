@@ -39,7 +39,7 @@ const ORDER = [
   "ingest-fgn-compact-progress-clean-cooking-headline",
 ];
 
-const CORRECTIONS = ["correct-nerc-customer-stocks"];
+const CORRECTIONS = ["correct-nerc-customer-stocks", "backfill-institution-traceability"];
 
 const force = process.argv.includes("--force");
 const onlyArg = process.argv.find((arg) => arg.startsWith("--only="));

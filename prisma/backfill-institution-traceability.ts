@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import {
   CANONICAL_INSTITUTIONS,
   resolveInstitutionSources,
-} from "../src/common/institutions/institution-alias";
+} from "./lib/institution-alias";
 
 const DATASET_OWNER_CORRECTIONS: { datasetId: string; ownerSlug: "niso-tcn" }[] = [
   { datasetId: "nerc-genco-installed-capacity", ownerSlug: "niso-tcn" },
