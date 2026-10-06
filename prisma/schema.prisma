@@ -344,8 +344,15 @@ model KpiDefinition {
   datasetFields   DatasetField[]
   targetPoints    KpiTargetPoint[]
   sourceInstitutions KpiSourceInstitution[]
+  /// Set on an indicator that records the same measurement as a matrix indicator
+  /// (e.g. M300-P2-026 -> M300-P2-002). The canonical KPI carries a synced copy
+  /// of the values; see prisma/link-duplicate-kpis.ts.
+  canonicalKpiId     String?
+  canonicalKpi       KpiDefinition?  @relation("KpiLink", fields: [canonicalKpiId], references: [id], onDelete: SetNull)
+  aliases            KpiDefinition[] @relation("KpiLink")
 
   @@index([pillarId])
+  @@index([canonicalKpiId])
   @@map("kpi_definitions")
 }
 

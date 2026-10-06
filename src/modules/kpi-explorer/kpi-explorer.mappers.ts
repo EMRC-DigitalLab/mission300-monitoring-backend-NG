@@ -144,7 +144,20 @@ const DECISION_LABEL: Record<string, string> = {
   PROVISIONALLY_APPROVED: "Provisionally approved",
 };
 
-type KpiWithFullProfile = KpiWithPillar & { targetPoints: KpiTargetPoint[] };
+type LinkedKpi = { code: string; name: string };
+
+type KpiWithFullProfile = KpiWithPillar & {
+  targetPoints: KpiTargetPoint[];
+  canonicalKpi?: LinkedKpi | null;
+  aliases?: LinkedKpi[];
+};
+
+function toRelatedIndicators(kpi: KpiWithFullProfile) {
+  return [
+    ...(kpi.canonicalKpi ? [{ id: kpi.canonicalKpi.code, name: kpi.canonicalKpi.name, relation: "canonical" as const }] : []),
+    ...(kpi.aliases ?? []).map((alias) => ({ id: alias.code, name: alias.name, relation: "alias" as const })),
+  ];
+}
 
 /**
  * Matches kpiProfileSchema exactly. `current`/`history`/`validationStatus`/
@@ -225,6 +238,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
 
     sourceInstitution: kpi.sourceInstitution || "Not supplied",
     sourceInstitutions: toResolvedSourceInstitutions(kpi),
+    relatedIndicators: toRelatedIndicators(kpi),
     sourceDataset: kpi.sourceDataset || "Not supplied",
     sourceReference: kpi.sourceReference,
     reportingPeriod: latest ? formatPeriodLabel(latest.period) : "",

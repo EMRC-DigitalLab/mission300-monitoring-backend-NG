@@ -22,10 +22,13 @@ const DEFAULT_PAGE_SIZE = 20;
 const VALUE_INCLUDE = { sourceSubmissionItem: { include: { submission: true } } } as const;
 const SOURCE_INSTITUTION_INCLUDE = { include: { institution: true } } as const;
 const KPI_INCLUDE = { pillar: true, sourceInstitutions: SOURCE_INSTITUTION_INCLUDE } as const;
+const LINKED_KPI_SELECT = { select: { code: true, name: true } } as const;
 const KPI_PROFILE_INCLUDE = {
   pillar: true,
   targetPoints: true,
   sourceInstitutions: SOURCE_INSTITUTION_INCLUDE,
+  canonicalKpi: LINKED_KPI_SELECT,
+  aliases: LINKED_KPI_SELECT,
 } as const;
 
 const READINESS_TIERS = ["CORE", "SUPPORTING", "FUTURE"] as const;
