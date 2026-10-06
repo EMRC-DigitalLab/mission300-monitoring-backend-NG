@@ -4,12 +4,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
 /**
- * Fills six canonical KPIs that the pillar dashboards read by code and that
+ * Fills seven canonical KPIs that the pillar dashboards read by code and that
  * were rendering "No data yet", even though the figures behind them were
  * already in this database or in the REA register:
  *
  * From DiscoPerformanceRecord (populated by ingest-nerc-disco-data.ts),
  * per quarter, summed across all 12 DisCos:
+ * - M300-P1-001 "Total Registered Grid Connections" (active customers: metered + unmetered)
  * - M300-P3-001 "Total Metered Customers"
  * - M300-P3-002 "Total Unmetered Customers"   (active - metered)
  * - M300-P3-003 "Metering Gap"                (same quantity, the gap to close)
@@ -183,6 +184,13 @@ async function main() {
       written++;
     }
     if (totals.active > 0) {
+      await backfillOne(
+        "M300-P1-001",
+        nerc.id,
+        period,
+        totals.active,
+        `${NERC_SOURCE}: active registered customers (metered + unmetered)`,
+      );
       const unmetered = Math.max(0, totals.active - totals.metered);
       await backfillOne(
         "M300-P3-002",
@@ -198,7 +206,7 @@ async function main() {
         unmetered,
         `${NERC_SOURCE}: unmetered customers, the gap still to close`,
       );
-      written += 2;
+      written += 3;
     }
     if (totals.revenueCollected > 0) {
       await backfillOne(
@@ -235,7 +243,7 @@ async function main() {
     written++;
   }
 
-  console.log(`KpiValue backfill complete: ${written} values across 6 canonical KPIs.`);
+  console.log(`KpiValue backfill complete: ${written} values across 7 canonical KPIs.`);
   await prisma.$disconnect();
 }
 

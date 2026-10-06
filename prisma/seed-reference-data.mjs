@@ -39,15 +39,18 @@ const ORDER = [
   "ingest-fgn-compact-progress-clean-cooking-headline",
 ];
 
+const CORRECTIONS = ["correct-nerc-customer-stocks"];
+
 const force = process.argv.includes("--force");
 const onlyArg = process.argv.find((arg) => arg.startsWith("--only="));
 const only = onlyArg ? onlyArg.slice("--only=".length) : null;
 if (only) {
-  if (!ORDER.includes(only)) {
-    console.error(`Unknown ingest script "${only}". Choose one of: ${ORDER.join(", ")}`);
+  if (![...ORDER, ...CORRECTIONS].includes(only)) {
+    console.error(`Unknown ingest script "${only}". Choose one of: ${[...ORDER, ...CORRECTIONS].join(", ")}`);
     process.exit(1);
   }
-  const result = spawnSync(process.execPath, [`dist/prisma/${only}.js`], { stdio: "inherit" });
+  const passthrough = process.argv.slice(2).filter((arg) => arg === "--dry-run");
+  const result = spawnSync(process.execPath, [`dist/prisma/${only}.js`, ...passthrough], { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
 if (!force) {

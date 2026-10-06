@@ -10,6 +10,8 @@ import {
   resolveDiscoName,
   MONTH_TO_QUARTER,
 } from "./lib/disco-institutions";
+import { quarterEndCustomerStocks, type MeteringRow } from "./lib/nerc-customer-stocks";
+import { findScaleBreaks, parseAcceptedScaleBreaks } from "./lib/scale-break";
 
 /**
  * One-off historical backfill of DisCo performance data (2020-2026) from
@@ -87,36 +89,22 @@ function readMonthlySheet(
   return rows;
 }
 
-/** "Disco Metering" is already quarterly (one row per DisCo per
- * End_of_Quarter date per Customer_Type), not monthly - read separately. */
 function readMeteringSheet(workbook: ExcelJS.Workbook) {
   const sheet = workbook.getWorksheet("Disco Metering");
   if (!sheet) throw new Error(`Sheet "Disco Metering" not found in workbook.`);
 
-  const metered = new Map<string, number>(); // key: disco|period
-  const unmetered = new Map<string, number>();
-
+  const rows: MeteringRow[] = [];
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
     const disco = cellString(row.getCell(1).value);
     const customerType = cellString(row.getCell(2).value);
-    const endOfQuarter = row.getCell(3).value;
-    const year = cellNumber(row.getCell(4).value);
+    const date = row.getCell(3).value;
     const count = cellNumber(row.getCell(5).value);
-    if (!disco || !year || !(endOfQuarter instanceof Date)) return;
-
-    const monthName = endOfQuarter.toLocaleString("en-US", { month: "long" });
-    const period = periodOf(year, monthName);
-    const key = `${disco}|${period}`;
-
-    if (customerType === "Metered Customer") {
-      metered.set(key, (metered.get(key) ?? 0) + count);
-    } else if (customerType === "Unmetered Customer") {
-      unmetered.set(key, (unmetered.get(key) ?? 0) + count);
-    }
+    if (!disco || !(date instanceof Date)) return;
+    rows.push({ disco, customerType, date, count });
   });
 
-  return { metered, unmetered };
+  return quarterEndCustomerStocks(rows);
 }
 
 interface QuarterAccumulator {
@@ -164,14 +152,14 @@ async function main() {
   const moRemittance = readMonthlySheet(workbook, "Disco MO Remittances", 1, 3, 4, 5);
   const nbetInvoice = readMonthlySheet(workbook, "Disco NBET Invoice", 1, 3, 4, 5);
   const nbetRemittance = readMonthlySheet(workbook, "Disco NBET Remittances", 1, 3, 4, 5);
-  const { metered, unmetered } = readMeteringSheet(workbook);
+  const customerStocks = readMeteringSheet(workbook);
 
   console.log(
     `Rows read: received=${energyReceived.length} billed=${energyBilled.length} ` +
       `revBilled=${revenueBilled.length} revCollected=${revenueCollected.length} ` +
       `moInvoice=${moInvoice.length} moRemit=${moRemittance.length} ` +
       `nbetInvoice=${nbetInvoice.length} nbetRemit=${nbetRemittance.length} ` +
-      `metering=${metered.size + unmetered.size}`,
+      `metering=${customerStocks.size}`,
   );
 
   const accumulators = new Map<string, QuarterAccumulator>();
@@ -204,13 +192,8 @@ async function main() {
   accumulate(nbetInvoice, "nbetInvoiceBillionNgn");
   accumulate(nbetRemittance, "nbetRemittanceBillionNgn");
 
-  // Metering rows use their own key set (disco full name already resolved
-  // via the metering reader's own periodOf() call, but the map keys are
-  // still built from the RAW short name there) - re-key through the same
-  // normalization map for consistency with the other accumulators.
-  function accumulateMetering(entries: Map<string, number>, field: "meteredCustomers" | "unmeteredCustomers") {
-    for (const [key, count] of entries) {
-      const [rawDisco, period] = key.split("|");
+  for (const [period, snapshot] of customerStocks) {
+    for (const [rawDisco, stock] of snapshot.byDisco) {
       const canonicalDisco = resolveDiscoName(rawDisco);
       if (!canonicalDisco) {
         unknownDiscoNames.add(rawDisco);
@@ -218,15 +201,41 @@ async function main() {
       }
       const accKey = `${canonicalDisco}|${period}`;
       const acc = accumulators.get(accKey) ?? newAccumulator(canonicalDisco, period);
-      acc[field] += count;
+      acc.meteredCustomers += stock.metered;
+      acc.unmeteredCustomers += stock.unmetered;
       accumulators.set(accKey, acc);
     }
   }
-  accumulateMetering(metered, "meteredCustomers");
-  accumulateMetering(unmetered, "unmeteredCustomers");
 
   if (unknownDiscoNames.size > 0) {
     throw new Error(`Unrecognized DisCo name(s) in workbook, not in DISCO_NAME_MAP: ${[...unknownDiscoNames].join(", ")}`);
+  }
+
+  const acceptedScaleBreaks = parseAcceptedScaleBreaks(process.env.NERC_ACCEPT_SCALE_BREAKS);
+  const nationalTotals = (field: "energyReceivedGwh" | "energyBilledGwh") => {
+    const totals = new Map<string, number>();
+    for (const acc of accumulators.values()) totals.set(acc.period, (totals.get(acc.period) ?? 0) + acc[field]);
+    return totals;
+  };
+  const unacknowledgedBreaks = (
+    [
+      ["energy received", "energyReceivedGwh"],
+      ["energy billed", "energyBilledGwh"],
+    ] as const
+  ).flatMap(([label, field]) =>
+    findScaleBreaks(nationalTotals(field))
+      .filter((scaleBreak) => !acceptedScaleBreaks.has(scaleBreak.period))
+      .map(
+        (scaleBreak) =>
+          `${label} fell ${scaleBreak.ratio.toFixed(1)}x from ${scaleBreak.previousPeriod} ` +
+          `(${scaleBreak.previousTotal.toFixed(0)} GWh) to ${scaleBreak.period} (${scaleBreak.total.toFixed(0)} GWh)`,
+      ),
+  );
+  if (unacknowledgedBreaks.length > 0) {
+    throw new Error(
+      `Implausible scale change in the NERC workbook, nothing was loaded:\n  ${unacknowledgedBreaks.join("\n  ")}\n` +
+        `If NERC has confirmed the figures, set NERC_ACCEPT_SCALE_BREAKS to the affected period(s), e.g. NERC_ACCEPT_SCALE_BREAKS=q3-2025.`,
+    );
   }
 
   console.log(`Distinct DisCo x quarter combinations: ${accumulators.size}`);

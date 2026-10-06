@@ -25,6 +25,7 @@
     "ingest-niso-bilateral-kpi.ts",
     "ingest-niso-remaining-sheets.ts",
     "ingest-nerc-datasets-obligations.ts",
-    "ingest-rea-niso-datasets-obligations.ts"
+    "ingest-rea-niso-datasets-obligations.ts",
+    "correct-nerc-customer-stocks.ts"
   ]
 }
