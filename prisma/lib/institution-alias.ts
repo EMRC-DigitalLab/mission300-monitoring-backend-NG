@@ -1,3 +1,4 @@
+// The scripts build (prisma/tsconfig.scripts.json) cannot import from src/ and the app build cannot import from prisma/, so this file is duplicated at prisma/lib/institution-alias.ts. institution-alias-sync.spec.ts fails if they differ.
 export type CanonicalInstitutionSlug =
   | "rea"
   | "nerc"
