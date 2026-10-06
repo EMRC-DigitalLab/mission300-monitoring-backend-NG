@@ -1,6 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import { assertOperationalInstitutionAccess } from "@/common/guards/operational-scope";
+import {
+  milestoneVisibleTo,
+  programmeVisibleTo,
+  projectVisibleTo,
+  resolveReadScope,
+} from "@/modules/programs/programs-visibility";
 import { ExecutionStatus, type Pillar, type Prisma } from "@prisma/client";
 import { PrismaService } from "@/prisma/prisma.service";
 import { paginate } from "@/modules/administration/overview/overview.mappers";
@@ -54,10 +60,15 @@ const CURRENT_PERIOD_LABEL = () => {
 export class ProgramsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getFilters() {
+  async getFilters(user: AuthenticatedUser) {
+    const scope = await resolveReadScope(this.prisma, user);
     const [pillars, institutions] = await Promise.all([
       this.prisma.pillar.findMany({ orderBy: { name: "asc" } }),
-      this.prisma.programme.findMany({ select: { leadInstitution: true }, distinct: ["leadInstitution"] }),
+      this.prisma.programme.findMany({
+        where: programmeVisibleTo(scope),
+        select: { leadInstitution: true },
+        distinct: ["leadInstitution"],
+      }),
     ]);
 
     const withAll = (label: string, options: { value: string; label: string }[]) => [
@@ -86,13 +97,20 @@ export class ProgramsService {
     };
   }
 
-  async getOverview(query: ProgramsQueryDto) {
+  async getOverview(user: AuthenticatedUser, query: ProgramsQueryDto) {
+    const scope = await resolveReadScope(this.prisma, user);
     const [programmes, projects, milestones] = await Promise.all([
-      this.prisma.programme.findMany({ include: PROGRAMME_INCLUDE, orderBy: { createdAt: "desc" } }),
+      this.prisma.programme.findMany({
+        where: programmeVisibleTo(scope),
+        include: PROGRAMME_INCLUDE,
+        orderBy: { createdAt: "desc" },
+      }),
       this.prisma.project.findMany({
+        where: projectVisibleTo(scope),
         select: { id: true, currentStatus: true, evidenceUrl: true, updatedAt: true },
       }),
       this.prisma.milestone.findMany({
+        where: milestoneVisibleTo(scope),
         select: {
           id: true,
           priority: true,
@@ -152,22 +170,29 @@ export class ProgramsService {
     };
   }
 
-  async getProgramme(id: string) {
-    const programme = await this.prisma.programme.findUnique({ where: { id }, include: PROGRAMME_INCLUDE });
+  async getProgramme(user: AuthenticatedUser, id: string) {
+    const scope = await resolveReadScope(this.prisma, user);
+    const programme = await this.prisma.programme.findFirst({
+      where: { id, ...programmeVisibleTo(scope) },
+      include: PROGRAMME_INCLUDE,
+    });
     if (!programme) throw new NotFoundException("The programme was not found.");
     const bottleneckIds = await loadBottleneckIdsByLinkedRecord(this.prisma, [id]);
     return toProgrammeRecord(programme, bottleneckIds.get(id) ?? []);
   }
 
-  async getProjectsForProgramme(programmeId: string, query: ProjectsQueryDto) {
-    const programme = await this.prisma.programme.findUnique({ where: { id: programmeId } });
+  async getProjectsForProgramme(user: AuthenticatedUser, programmeId: string, query: ProjectsQueryDto) {
+    const scope = await resolveReadScope(this.prisma, user);
+    const programme = await this.prisma.programme.findFirst({
+      where: { id: programmeId, ...programmeVisibleTo(scope) },
+    });
     if (!programme) throw new NotFoundException("The programme was not found.");
 
     const search = query.search?.trim().toLowerCase() ?? "";
     const status = query.status ?? "all";
 
     const projects = await this.prisma.project.findMany({
-      where: { programmeId },
+      where: { programmeId, ...projectVisibleTo(scope) },
       include: PROJECT_INCLUDE,
       orderBy: { createdAt: "desc" },
     });
@@ -186,9 +211,10 @@ export class ProgramsService {
     return paginate(records, query.page ?? 1, Math.min(200, query.pageSize ?? 10));
   }
 
-  async getProject(projectId: string) {
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
+  async getProject(user: AuthenticatedUser, projectId: string) {
+    const scope = await resolveReadScope(this.prisma, user);
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, ...projectVisibleTo(scope) },
       include: PROJECT_INCLUDE,
     });
     if (!project) throw new NotFoundException("The project was not found.");
@@ -196,8 +222,9 @@ export class ProgramsService {
     return toProjectRecord(project, bottleneckIds.get(projectId) ?? []);
   }
 
-  async getMilestonesForProject(projectId: string, query: MilestonesQueryDto) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+  async getMilestonesForProject(user: AuthenticatedUser, projectId: string, query: MilestonesQueryDto) {
+    const scope = await resolveReadScope(this.prisma, user);
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, ...projectVisibleTo(scope) } });
     if (!project) throw new NotFoundException("The project was not found.");
 
     const milestones = await this.prisma.milestone.findMany({

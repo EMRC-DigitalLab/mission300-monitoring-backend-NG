@@ -48,13 +48,13 @@ export class ProgramsController {
   constructor(private readonly programs: ProgramsService) {}
 
   @Get("filters")
-  getFilters() {
-    return this.programs.getFilters();
+  getFilters(@CurrentUser() user: AuthenticatedUser) {
+    return this.programs.getFilters(user);
   }
 
   @Get()
-  getOverview(@Query() query: ProgramsQueryDto) {
-    return this.programs.getOverview(query);
+  getOverview(@CurrentUser() user: AuthenticatedUser, @Query() query: ProgramsQueryDto) {
+    return this.programs.getOverview(user, query);
   }
 
   @Post()
@@ -65,13 +65,17 @@ export class ProgramsController {
   }
 
   @Get("projects/:projectId")
-  getProject(@Param("projectId") projectId: string) {
-    return this.programs.getProject(projectId);
+  getProject(@CurrentUser() user: AuthenticatedUser, @Param("projectId") projectId: string) {
+    return this.programs.getProject(user, projectId);
   }
 
   @Get("projects/:projectId/milestones")
-  getMilestones(@Param("projectId") projectId: string, @Query() query: MilestonesQueryDto) {
-    return this.programs.getMilestonesForProject(projectId, query);
+  getMilestones(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("projectId") projectId: string,
+    @Query() query: MilestonesQueryDto,
+  ) {
+    return this.programs.getMilestonesForProject(user, projectId, query);
   }
 
   @Post("projects/:projectId/milestones")
@@ -158,12 +162,16 @@ export class ProgramsController {
   // treat "projects" as a :programmeId value - same ordering concern as any
   // static-vs-param route conflict.
   @Get(":programmeId")
-  getProgramme(@Param("programmeId") programmeId: string) {
-    return this.programs.getProgramme(programmeId);
+  getProgramme(@CurrentUser() user: AuthenticatedUser, @Param("programmeId") programmeId: string) {
+    return this.programs.getProgramme(user, programmeId);
   }
 
   @Get(":programmeId/projects")
-  getProjectsForProgramme(@Param("programmeId") programmeId: string, @Query() query: ProjectsQueryDto) {
-    return this.programs.getProjectsForProgramme(programmeId, query);
+  getProjectsForProgramme(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("programmeId") programmeId: string,
+    @Query() query: ProjectsQueryDto,
+  ) {
+    return this.programs.getProjectsForProgramme(user, programmeId, query);
   }
 }

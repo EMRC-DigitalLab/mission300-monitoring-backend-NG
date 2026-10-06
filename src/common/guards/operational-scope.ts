@@ -1,6 +1,7 @@
 import { ForbiddenException } from "@nestjs/common";
 import type { AuthenticatedUser } from "@/common/decorators/current-user.decorator";
 import type { PrismaService } from "@/prisma/prisma.service";
+import { ownerMatchesInstitution } from "@/common/institutions/owner-match";
 
 export const OPERATIONAL_MANAGERS = ["SYSTEM_ADMINISTRATOR", "DASHBOARD_MANAGER"] as const;
 export const OPERATIONAL_WRITERS = [...OPERATIONAL_MANAGERS, "INSTITUTIONAL_DATA_PROVIDER"] as const;
@@ -13,8 +14,9 @@ export const OPERATIONAL_WRITERS = [...OPERATIONAL_MANAGERS, "INSTITUTIONAL_DATA
 type InstitutionLookup = Pick<PrismaService, "institution">;
 
 // Operational ownership is stored as an institution name in the existing
-// project/issue contract. Require an exact normalized match, never a substring
-// or abbreviation that could accidentally grant access to another institution.
+// project/issue contract. Require an exact normalized match or a spelling that
+// resolves to exactly this one institution (see ownerMatchesInstitution) -
+// never a substring, and never a joint owner that names several bodies.
 export async function assertOperationalInstitutionAccess(
   prisma: InstitutionLookup,
   user: AuthenticatedUser,
@@ -27,9 +29,9 @@ export async function assertOperationalInstitutionAccess(
   }
   const institution = await prisma.institution.findUnique({
     where: { id: user.institutionId },
-    select: { name: true },
+    select: { id: true, name: true },
   });
-  if (!institution || institution.name.trim().toLowerCase() !== owner.trim().toLowerCase()) {
+  if (!institution || !ownerMatchesInstitution(owner, institution)) {
     throw new ForbiddenException("You cannot modify another institution's records.");
   }
 }
