@@ -102,6 +102,7 @@ async function main() {
     period: string,
     value: number,
     sourceReference: string,
+    coverageNote: string | null = null,
   ) {
     const kpi = await prisma.kpiDefinition.findUnique({ where: { code: kpiCode } });
     if (!kpi) throw new Error(`KPI ${kpiCode} not found - run ingest-kpi-directory.js first.`);
@@ -151,8 +152,9 @@ async function main() {
         value,
         sourceSubmissionItemId: itemId,
         approvedAt: approvedAtFor(period),
+        coverageNote,
       },
-      update: { value, approvedAt: approvedAtFor(period) },
+      update: { value, approvedAt: approvedAtFor(period), coverageNote },
     });
   }
 
@@ -160,7 +162,7 @@ async function main() {
   const QUARTER = /^q[1-4]-\d{4}$/;
   const byPeriod = new Map<
     string,
-    { active: number; metered: number; revenueBilled: number; revenueCollected: number }
+    { active: number; metered: number; revenueBilled: number; revenueCollected: number; coverageNote: string | null }
   >();
   for (const record of records) {
     if (!QUARTER.test(record.period)) continue;
@@ -169,7 +171,9 @@ async function main() {
       metered: 0,
       revenueBilled: 0,
       revenueCollected: 0,
+      coverageNote: null,
     };
+    totals.coverageNote = totals.coverageNote ?? record.coverageNote;
     totals.active += record.activeCustomers;
     totals.metered += record.meteredCustomers;
     totals.revenueBilled += Number(record.revenueBilledNgn);
@@ -215,6 +219,7 @@ async function main() {
         period,
         totals.revenueCollected / 1e9,
         `${NERC_SOURCE}: revenue collected`,
+        totals.coverageNote,
       );
       written++;
     }

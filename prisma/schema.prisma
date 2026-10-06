@@ -381,6 +381,9 @@ model KpiValue {
   sourceSubmissionItemId String      @unique
   sourceSubmissionItem   SubmissionItem @relation(fields: [sourceSubmissionItemId], references: [id])
   approvedAt          DateTime
+  /// Months of the period the value actually covers when that is fewer than a
+  /// full quarter (e.g. "Apr–May"). Null for a complete period.
+  coverageNote        String?
 
   @@index([kpiDefinitionId, period])
   @@map("kpi_values")
@@ -1176,6 +1179,8 @@ model DiscoPerformanceRecord {
   /// (those give the ACTUAL loss rate, atccLossRatePercent below).
   allowedLossRatePercent  Decimal?
   atccLossRatePercent     Decimal
+  /// Months covered when the period is incomplete in the source (e.g. "Apr–May").
+  coverageNote            String?
   /// Where this record's figures came from - e.g. the compiled NERC
   /// workbook this was bulk-ingested from. Null for a row entered directly
   /// through the admin screen with no source file.

@@ -170,6 +170,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     id: v.id,
     period: formatPeriodLabel(v.period),
     value: toNumber(v.value) ?? 0,
+    coverageNote: v.coverageNote ?? null,
     validationStatus: deriveValidationStatus(v.sourceSubmissionItem.submission.status),
     submissionId: v.sourceSubmissionItem.submissionId,
     // Only ever true for a value set via the setCurrentValue() admin
@@ -184,7 +185,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
   const previous = chronological.length > 1 ? chronological.at(-2)! : null;
   const previousValue = previous ? toNumber(previous.value) : null;
   const trend =
-    current !== null && previous !== null && previousValue !== null
+    current !== null && previous !== null && previousValue !== null && !latest?.coverageNote
       ? buildTrend(current, previousValue, previous.period, kpi.unit, direction)
       : undefined;
 
@@ -227,6 +228,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     sourceDataset: kpi.sourceDataset || "Not supplied",
     sourceReference: kpi.sourceReference,
     reportingPeriod: latest ? formatPeriodLabel(latest.period) : "",
+    reportingPeriodCoverage: latest?.coverageNote ?? null,
     validationStatus: deriveValidationStatus(submissionStatus),
     validationDecision: submissionStatus ? (DECISION_LABEL[submissionStatus] ?? "") : "",
     version: kpi.version,

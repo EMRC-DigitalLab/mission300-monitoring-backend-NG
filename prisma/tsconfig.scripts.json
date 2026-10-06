@@ -27,6 +27,7 @@
     "ingest-nerc-datasets-obligations.ts",
     "ingest-rea-niso-datasets-obligations.ts",
     "correct-nerc-customer-stocks.ts",
-    "backfill-institution-traceability.ts"
+    "backfill-institution-traceability.ts",
+    "apply-period-coverage.ts"
   ]
 }

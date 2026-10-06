@@ -12,6 +12,7 @@ import {
 } from "./lib/disco-institutions";
 import { quarterEndCustomerStocks, type MeteringRow } from "./lib/nerc-customer-stocks";
 import { findScaleBreaks, parseAcceptedScaleBreaks } from "./lib/scale-break";
+import { addMonth, commonMonths, coverageNoteFor, quarterOfMonth } from "./lib/period-coverage";
 
 /**
  * One-off historical backfill of DisCo performance data (2020-2026) from
@@ -160,6 +161,17 @@ async function main() {
       `moInvoice=${moInvoice.length} moRemit=${moRemittance.length} ` +
       `nbetInvoice=${nbetInvoice.length} nbetRemit=${nbetRemittance.length} ` +
       `metering=${customerStocks.size}`,
+  );
+
+  const flowCoverage = commonMonths(
+    [energyReceived, energyBilled, revenueBilled, revenueCollected].map((rows) => {
+      const months = new Map<string, Set<string>>();
+      for (const row of rows) {
+        const quarter = quarterOfMonth(row.month);
+        if (quarter && row.value > 0) addMonth(months, `q${quarter}-${row.year}`, row.month);
+      }
+      return months;
+    }),
   );
 
   const accumulators = new Map<string, QuarterAccumulator>();
@@ -327,6 +339,7 @@ async function main() {
       remittanceObligationNgn: (acc.moInvoiceBillionNgn + acc.nbetInvoiceBillionNgn) * 1_000_000_000,
       remittanceActualNgn: (acc.moRemittanceBillionNgn + acc.nbetRemittanceBillionNgn) * 1_000_000_000,
       atccLossRatePercent,
+      coverageNote: coverageNoteFor(acc.period, flowCoverage.get(acc.period)),
       evidenceUrl: uploadedFile.id,
     };
 
