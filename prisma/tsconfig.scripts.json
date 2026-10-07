@@ -29,6 +29,7 @@
     "correct-nerc-customer-stocks.ts",
     "backfill-institution-traceability.ts",
     "apply-period-coverage.ts",
-    "link-duplicate-kpis.ts"
+    "link-duplicate-kpis.ts",
+    "load-status-values.ts"
   ]
 }

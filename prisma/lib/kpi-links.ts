@@ -13,6 +13,7 @@ export const KPI_LINKS: KpiLink[] = [
   { canonical: "M300-P2-006", alias: "M300-P2-030" },
   { canonical: "M300-P4-001", alias: "M300-P4-009" },
   { canonical: "M300-P2-008", alias: "M300-P2-025" },
+  { canonical: "M300-P4-004", alias: "M300-P4-013" },
 ];
 
 export interface LinkedValue {

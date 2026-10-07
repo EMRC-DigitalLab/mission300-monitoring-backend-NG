@@ -11,6 +11,7 @@ import type {
 import { toKebabCase } from "@/common/utils/enum-casing";
 import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
 import { compareReportingValues } from "@/common/utils/reporting-period";
+import { isStatusUnit, statusLabel } from "@/common/kpi/status-values";
 
 type ValueWithProvenance = KpiValue & { sourceSubmissionItem: SubmissionItem & { submission: Submission } };
 
@@ -184,6 +185,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     period: formatPeriodLabel(v.period),
     value: toNumber(v.value) ?? 0,
     coverageNote: v.coverageNote ?? null,
+    valueLabel: isStatusUnit(kpi.unit) ? statusLabel(toNumber(v.value)) : null,
     validationStatus: deriveValidationStatus(v.sourceSubmissionItem.submission.status),
     submissionId: v.sourceSubmissionItem.submissionId,
     // Only ever true for a value set via the setCurrentValue() admin
@@ -198,7 +200,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
   const previous = chronological.length > 1 ? chronological.at(-2)! : null;
   const previousValue = previous ? toNumber(previous.value) : null;
   const trend =
-    current !== null && previous !== null && previousValue !== null && !latest?.coverageNote
+    current !== null && previous !== null && previousValue !== null && !latest?.coverageNote && !isStatusUnit(kpi.unit)
       ? buildTrend(current, previousValue, previous.period, kpi.unit, direction)
       : undefined;
 
@@ -221,7 +223,12 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     baseline,
     baselineLabel: kpi.baselineLabel,
     current,
-    currentLabel: current === null ? NO_KPI_VALUE_LABEL : `${current}${kpi.unit ? ` ${kpi.unit}` : ""}`,
+    currentLabel:
+      current === null
+        ? NO_KPI_VALUE_LABEL
+        : isStatusUnit(kpi.unit)
+          ? (statusLabel(current) ?? NO_KPI_VALUE_LABEL)
+          : `${current}${kpi.unit ? ` ${kpi.unit}` : ""}`,
     target,
     targetLabel: kpi.targetLabel,
     targetBasis: kpi.targetBasis
@@ -231,7 +238,7 @@ export function toKpiProfile(kpi: KpiWithFullProfile, kpiValues: ValueWithProven
     targetDate: kpi.targetDate,
     targets: kpi.targetPoints.map((p) => ({ period: p.period, value: Number(p.value), label: p.label })),
     externalStandardAlignment: (kpi.externalStandardAlignment as object | null) ?? null,
-    varianceLabel: buildVarianceLabel(current, target, kpi.direction, kpi.unit),
+    varianceLabel: isStatusUnit(kpi.unit) ? "No variance available." : buildVarianceLabel(current, target, kpi.direction, kpi.unit),
     direction,
     trend,
     history,

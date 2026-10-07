@@ -12,6 +12,7 @@ import type { AuthenticatedUser } from "@/common/decorators/current-user.decorat
 import { formatPeriodLabel, toCatalogueRow, toKpiProfile } from "@/modules/kpi-explorer/kpi-explorer.mappers";
 import { ADMIN_OVERRIDE_SOURCE_REFERENCE } from "@/modules/kpi-explorer/admin-override.constant";
 import { compareReportingValues } from "@/common/utils/reporting-period";
+import { statusValueError } from "@/common/kpi/status-values";
 import {
   CANONICAL_INSTITUTIONS,
   resolveInstitutionSources,
@@ -344,6 +345,9 @@ export class KpiExplorerService {
     const kpi = await this.prisma.kpiDefinition.findUnique({ where: { code } });
     if (!kpi) throw new NotFoundException("KPI not found.");
 
+    const statusError = statusValueError(kpi.unit, dto.value);
+    if (statusError) throw new BadRequestException(statusError);
+
     const institutionId = await this.resolveInstitutionId(kpi.sourceInstitution, user.institutionId);
     const targetStatus = dto.resultingStatus === "confirmed" ? "APPROVED" : "PROVISIONALLY_APPROVED";
     const reviewType = dto.resultingStatus === "confirmed" ? "APPROVE" : "PROVISIONALLY_APPROVE";
@@ -406,11 +410,13 @@ export class KpiExplorerService {
         "This value did not come from a direct admin override - correct it through Data Submissions review, not here.",
       );
     }
-    return value;
+    return Object.assign(value, { kpiUnit: kpi.unit });
   }
 
   async editHistoryPoint(code: string, valueId: string, dto: SetKpiCurrentValueDto) {
     const value = await this.findEditableHistoryPoint(code, valueId);
+    const statusError = statusValueError(value.kpiUnit, dto.value);
+    if (statusError) throw new BadRequestException(statusError);
     const targetStatus = dto.resultingStatus === "confirmed" ? "APPROVED" : "PROVISIONALLY_APPROVED";
     const reviewType = dto.resultingStatus === "confirmed" ? "APPROVE" : "PROVISIONALLY_APPROVE";
 
